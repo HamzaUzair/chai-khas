@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
 import { Menu, LogOut, User } from "lucide-react";
 
 interface HeaderProps {
@@ -9,6 +10,14 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ title, onMenuToggle }) => {
+  const router = useRouter();
+
+  const handleLogout = () => {
+    localStorage.removeItem("isAuthenticated");
+    localStorage.removeItem("userRole");
+    router.push("/login");
+  };
+
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
       {/* Left */}
@@ -34,7 +43,10 @@ const Header: React.FC<HeaderProps> = ({ title, onMenuToggle }) => {
           </span>
         </div>
 
-        <button className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-500 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors cursor-pointer">
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-500 px-3 py-2 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+        >
           <LogOut size={18} />
           <span className="hidden sm:block">Logout</span>
         </button>
