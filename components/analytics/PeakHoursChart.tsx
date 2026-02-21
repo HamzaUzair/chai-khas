@@ -99,10 +99,10 @@ const PeakHoursChart: React.FC<Props> = ({ data, loading }) => {
                     fontSize: 12,
                     boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
                   }}
-                  formatter={(value: number, _name: string, props: { payload: PeakHourPoint }) => [
-                    `${value} orders`,
-                    props.payload.label,
-                  ]}
+                  formatter={(value, _name, props) => {
+                    const p = (props as unknown as { payload: PeakHourPoint }).payload;
+                    return [`${value} orders`, p.label];
+                  }}
                 />
                 <Bar dataKey="orders" radius={[4, 4, 0, 0]} maxBarSize={28}>
                   {data.map((entry, idx) => (
