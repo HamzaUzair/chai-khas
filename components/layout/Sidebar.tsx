@@ -1,8 +1,6 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Building2,
@@ -21,37 +19,32 @@ import {
   Grid3X3,
   Users,
   UserCog,
-  TrendingUp,
-  Package,
-  X,
 } from "lucide-react";
 
 interface SidebarItem {
   label: string;
   icon: React.ReactNode;
-  href?: string; // only items with href will navigate
+  active?: boolean;
 }
 
 const menuItems: SidebarItem[] = [
-  { label: "Dashboard", icon: <LayoutDashboard size={20} />, href: "/dashboard" },
-  { label: "Branches", icon: <Building2 size={20} />, href: "/branches" },
-  { label: "Create Order", icon: <ShoppingCart size={20} />, href: "/create-order" },
-  { label: "Categories", icon: <Layers3 size={20} />, href: "/categories" },
-  { label: "Menu", icon: <UtensilsCrossed size={20} />, href: "/menu" },
-  { label: "Inventory", icon: <Package size={20} />, href: "/inventory" },
-  { label: "Kitchen", icon: <ChefHat size={20} />, href: "/kitchen" },
+  { label: "Dashboard", icon: <LayoutDashboard size={20} />, active: true },
+  { label: "Branches", icon: <Building2 size={20} /> },
+  { label: "Create Order", icon: <ShoppingCart size={20} /> },
+  { label: "Categories", icon: <Layers3 size={20} /> },
+  { label: "Menu", icon: <UtensilsCrossed size={20} /> },
+  { label: "Kitchen", icon: <ChefHat size={20} /> },
   { label: "Printers", icon: <Printer size={20} /> },
-  { label: "Orders", icon: <ClipboardList size={20} />, href: "/orders" },
-  { label: "Sales List", icon: <Receipt size={20} />, href: "/sales-list" },
-  { label: "Sales Report", icon: <BarChart3 size={20} />, href: "/sales-report" },
-  { label: "Menu Sales", icon: <PieChart size={20} />, href: "/menu-sales" },
-  { label: "Expenses", icon: <Wallet size={20} />, href: "/expenses" },
+  { label: "Orders", icon: <ClipboardList size={20} /> },
+  { label: "Sales List", icon: <Receipt size={20} /> },
+  { label: "Sales Report", icon: <BarChart3 size={20} /> },
+  { label: "Menu Sales", icon: <PieChart size={20} /> },
+  { label: "Expenses", icon: <Wallet size={20} /> },
   { label: "Day End", icon: <CalendarCheck size={20} /> },
-  { label: "Halls", icon: <DoorOpen size={20} />, href: "/halls" },
+  { label: "Halls", icon: <DoorOpen size={20} /> },
   { label: "Tables", icon: <Grid3X3 size={20} /> },
   { label: "Customers", icon: <Users size={20} /> },
-  { label: "Users", icon: <UserCog size={20} />, href: "/users" },
-  { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
+  { label: "Users", icon: <UserCog size={20} /> },
 ];
 
 interface SidebarProps {
@@ -60,13 +53,6 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  const pathname = usePathname();
-
-  const baseClasses =
-    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer";
-  const activeClasses = "bg-[#ff5a1f] text-white shadow-sm";
-  const inactiveClasses = "text-gray-600 hover:bg-gray-100 hover:text-gray-900";
-
   return (
     <>
       {/* Mobile overlay */}
@@ -83,51 +69,30 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         }`}
       >
         {/* ── Brand ── */}
-        <div className="h-16 flex items-center justify-between px-5 border-b border-gray-100 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-[#ff5a1f] flex items-center justify-center">
-              <UtensilsCrossed size={18} className="text-white" />
-            </div>
-            <span className="text-lg font-bold text-[#ff5a1f] tracking-wide">
-              Super Admin
-            </span>
+        <div className="h-16 flex items-center gap-3 px-6 border-b border-gray-100 shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-[#ff5a1f] flex items-center justify-center">
+            <UtensilsCrossed size={18} className="text-white" />
           </div>
-          <button
-            onClick={onClose}
-            className="lg:hidden p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 cursor-pointer"
-            aria-label="Close sidebar"
-          >
-            <X size={20} />
-          </button>
+          <span className="text-lg font-bold text-gray-800 tracking-wide">
+            Super Admin
+          </span>
         </div>
 
         {/* ── Menu ── */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-          {menuItems.map((item) => {
-            const isActive = item.href ? pathname === item.href : false;
-            const classes = `${baseClasses} ${isActive ? activeClasses : inactiveClasses}`;
-
-            if (item.href) {
-              return (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  className={classes}
-                  onClick={onClose}
-                >
-                  {item.icon}
-                  {item.label}
-                </Link>
-              );
-            }
-
-            return (
-              <button key={item.label} className={classes}>
-                {item.icon}
-                {item.label}
-              </button>
-            );
-          })}
+        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1 scrollbar-thin">
+          {menuItems.map((item) => (
+            <button
+              key={item.label}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                item.active
+                  ? "bg-[#ff5a1f] text-white shadow-sm"
+                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+              }`}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
         </nav>
 
         {/* ── Footer ── */}

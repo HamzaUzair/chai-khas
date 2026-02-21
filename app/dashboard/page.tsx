@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import {
   Building2,
@@ -16,7 +15,53 @@ import {
   Package,
   FolderOpen,
 } from "lucide-react";
-import type { DashboardStats } from "@/types/branch";
+
+/* ── Static stat cards data ── */
+interface StatCard {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  color: string;
+  bg: string;
+}
+
+const stats: StatCard[] = [
+  {
+    label: "Total Branches",
+    value: "0",
+    icon: <Building2 size={24} />,
+    color: "text-[#ff5a1f]",
+    bg: "bg-[#ff5a1f]/10",
+  },
+  {
+    label: "Total Orders",
+    value: "0",
+    icon: <ShoppingCart size={24} />,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+  },
+  {
+    label: "Total Sales",
+    value: "PKR 0.00",
+    icon: <DollarSign size={24} />,
+    color: "text-green-600",
+    bg: "bg-green-50",
+  },
+  {
+    label: "Menu Items",
+    value: "0",
+    icon: <Package size={24} />,
+    color: "text-purple-600",
+    bg: "bg-purple-50",
+  },
+  {
+    label: "Categories",
+    value: "0",
+    icon: <FolderOpen size={24} />,
+    color: "text-amber-600",
+    bg: "bg-amber-50",
+  },
+];
 
 /* ── Quick action buttons data ── */
 interface QuickAction {
@@ -27,24 +72,55 @@ interface QuickAction {
 }
 
 const quickActions: QuickAction[] = [
-  { label: "Branches", icon: <Building2 size={22} />, color: "text-[#ff5a1f]", bg: "bg-[#ff5a1f]/10" },
-  { label: "Create Order", icon: <ShoppingCart size={22} />, color: "text-blue-600", bg: "bg-blue-50" },
-  { label: "Categories", icon: <Layers3 size={22} />, color: "text-purple-600", bg: "bg-purple-50" },
-  { label: "Menu Items", icon: <UtensilsCrossed size={22} />, color: "text-green-600", bg: "bg-green-50" },
-  { label: "Orders", icon: <ClipboardList size={22} />, color: "text-amber-600", bg: "bg-amber-50" },
-  { label: "Accounts", icon: <Landmark size={22} />, color: "text-rose-600", bg: "bg-rose-50" },
+  {
+    label: "Branches",
+    icon: <Building2 size={22} />,
+    color: "text-[#ff5a1f]",
+    bg: "bg-[#ff5a1f]/10",
+  },
+  {
+    label: "Create Order",
+    icon: <ShoppingCart size={22} />,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+  },
+  {
+    label: "Categories",
+    icon: <Layers3 size={22} />,
+    color: "text-purple-600",
+    bg: "bg-purple-50",
+  },
+  {
+    label: "Menu Items",
+    icon: <UtensilsCrossed size={22} />,
+    color: "text-green-600",
+    bg: "bg-green-50",
+  },
+  {
+    label: "Orders",
+    icon: <ClipboardList size={22} />,
+    color: "text-amber-600",
+    bg: "bg-amber-50",
+  },
+  {
+    label: "Accounts",
+    icon: <Landmark size={22} />,
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+  },
 ];
 
 /* ── Branch table columns ── */
-const branchTableCols = ["Branch Name", "Daily Sales", "Running Orders", "Complete Bills"];
+const branchTableCols = [
+  "Branch Name",
+  "Daily Sales",
+  "Running Orders",
+  "Complete Bills",
+];
 
 export default function DashboardPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
-
-  // ── Dynamic stats ──
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(true);
 
   // ── Route protection ──
   useEffect(() => {
@@ -56,26 +132,6 @@ export default function DashboardPage() {
     }
   }, [router]);
 
-  // ── Fetch dashboard stats ──
-  useEffect(() => {
-    if (!authorized) return;
-    const fetchStats = async () => {
-      setStatsLoading(true);
-      try {
-        const res = await fetch("/api/stats/dashboard");
-        if (res.ok) {
-          const data: DashboardStats = await res.json();
-          setStats(data);
-        }
-      } catch {
-        // silently fail — cards will show 0
-      } finally {
-        setStatsLoading(false);
-      }
-    };
-    fetchStats();
-  }, [authorized]);
-
   if (!authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -83,46 +139,6 @@ export default function DashboardPage() {
       </div>
     );
   }
-
-  /* Build stat cards with dynamic branch count */
-  const statCards = [
-    {
-      label: "Total Branches",
-      value: statsLoading ? "…" : String(stats?.totalActiveBranches ?? 0),
-      icon: <Building2 size={24} />,
-      color: "text-[#ff5a1f]",
-      bg: "bg-[#ff5a1f]/10",
-      href: "/branches#branches-table",
-    },
-    {
-      label: "Total Orders",
-      value: "0",
-      icon: <ShoppingCart size={24} />,
-      color: "text-blue-600",
-      bg: "bg-blue-50",
-    },
-    {
-      label: "Total Sales",
-      value: "PKR 0.00",
-      icon: <DollarSign size={24} />,
-      color: "text-green-600",
-      bg: "bg-green-50",
-    },
-    {
-      label: "Menu Items",
-      value: "0",
-      icon: <Package size={24} />,
-      color: "text-purple-600",
-      bg: "bg-purple-50",
-    },
-    {
-      label: "Categories",
-      value: "0",
-      icon: <FolderOpen size={24} />,
-      color: "text-amber-600",
-      bg: "bg-amber-50",
-    },
-  ];
 
   return (
     <DashboardLayout title="Dashboard">
@@ -138,46 +154,26 @@ export default function DashboardPage() {
 
       {/* ── Stat Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 mb-8">
-        {statCards.map((s) => {
-          const cardContent = (
-            <>
-              <div
-                className={`w-12 h-12 rounded-xl ${s.bg} flex items-center justify-center shrink-0 ${s.color}`}
-              >
-                {s.icon}
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wider">
-                  {s.label}
-                </p>
-                <p className="text-xl font-bold text-gray-800 mt-0.5">
-                  {s.value}
-                </p>
-              </div>
-            </>
-          );
-
-          if (s.href) {
-            return (
-              <Link
-                key={s.label}
-                href={s.href}
-                className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/40 focus:ring-offset-2"
-              >
-                {cardContent}
-              </Link>
-            );
-          }
-
-          return (
+        {stats.map((s) => (
+          <div
+            key={s.label}
+            className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 hover:shadow-md transition-shadow"
+          >
             <div
-              key={s.label}
-              className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 hover:shadow-md transition-shadow"
+              className={`w-12 h-12 rounded-xl ${s.bg} flex items-center justify-center shrink-0 ${s.color}`}
             >
-              {cardContent}
+              {s.icon}
             </div>
-          );
-        })}
+            <div>
+              <p className="text-xs text-gray-400 uppercase tracking-wider">
+                {s.label}
+              </p>
+              <p className="text-xl font-bold text-gray-800 mt-0.5">
+                {s.value}
+              </p>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* ── Branch Daily Statistics Table ── */}
