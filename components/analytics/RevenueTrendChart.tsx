@@ -55,7 +55,7 @@ const RevenueTrendChart: React.FC<Props> = ({ data, loading }) => (
               tick={{ fontSize: 11, fill: "#9ca3af" }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`}
+              tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`}
             />
             <Tooltip
               contentStyle={{
@@ -64,7 +64,7 @@ const RevenueTrendChart: React.FC<Props> = ({ data, loading }) => (
                 fontSize: 12,
                 boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
               }}
-              formatter={(value: number) => [`PKR ${value.toLocaleString()}`, "Revenue"]}
+              formatter={(value) => [`PKR ${Number(value).toLocaleString()}`, "Revenue"]}
             />
             <Line
               type="monotone"
