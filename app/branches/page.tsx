@@ -1,12 +1,133 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { PlusCircle } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import { useAuth } from "@/hooks/useAuth";
-import { Building2, Plus } from "lucide-react";
+import BranchTable from "@/components/branches/BranchTable";
+import CreateBranchModal from "@/components/branches/CreateBranchModal";
+import type { Branch, BranchFormData, ApiError } from "@/types/branch";
 
 export default function BranchesPage() {
-  const authorized = useAuth();
+  const router = useRouter();
+  const [authorized, setAuthorized] = useState(false);
+
+  // ── Branch state ──
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+
+  // ── Auth guard ──
+  useEffect(() => {
+    if (localStorage.getItem("isAuthenticated") !== "true") {
+      router.replace("/login");
+    } else {
+      setAuthorized(true);
+    }
+  }, [router]);
+
+  // ── Fetch branches from API ──
+  const fetchBranches = useCallback(async () => {
+    setLoading(true);
+    setFetchError("");
+    try {
+      const res = await fetch("/api/branches");
+      if (!res.ok) throw new Error("Failed to fetch branches");
+      const data: Branch[] = await res.json();
+      setBranches(data);
+    } catch {
+      setFetchError("Could not load branches. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authorized) fetchBranches();
+  }, [authorized, fetchBranches]);
+
+  // ── Smooth scroll to hash anchor after branches load ──
+  useEffect(() => {
+    if (!loading && window.location.hash) {
+      const el = document.querySelector(window.location.hash);
+      if (el) {
+        setTimeout(() => el.scrollIntoView({ behavior: "smooth" }), 100);
+      }
+    }
+  }, [loading]);
+
+  // ── Handlers ──
+  const openCreate = () => {
+    setEditingBranch(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (branch: Branch) => {
+    setEditingBranch(branch);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingBranch(null);
+  };
+
+  /** Create or Update — called from modal (throws on API error so modal can show it) */
+  const handleSubmit = async (data: BranchFormData) => {
+    if (editingBranch) {
+      // ── PUT ──
+      const res = await fetch(`/api/branches/${editingBranch.branch_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const body: ApiError = await res.json();
+        throw new Error(body.error || "Failed to update branch");
+      }
+      const updated: Branch = await res.json();
+      setBranches((prev) =>
+        prev.map((b) => (b.branch_id === updated.branch_id ? updated : b))
+      );
+    } else {
+      // ── POST ──
+      const res = await fetch("/api/branches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const body: ApiError = await res.json();
+        throw new Error(body.error || "Failed to create branch");
+      }
+      const created: Branch = await res.json();
+      setBranches((prev) => [created, ...prev]);
+    }
+    closeModal();
+  };
+
+  const handleDelete = async (branch: Branch) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${branch.branch_name}"?`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/branches/${branch.branch_id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body: ApiError = await res.json();
+        alert(body.error || "Failed to delete branch");
+        return;
+      }
+      setBranches((prev) => prev.filter((b) => b.branch_id !== branch.branch_id));
+    } catch {
+      alert("Network error. Could not delete branch.");
+    }
+  };
 
   if (!authorized) {
     return (
@@ -18,42 +139,57 @@ export default function BranchesPage() {
 
   return (
     <DashboardLayout title="Branches">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800">Branch Management</h2>
-          <p className="text-sm text-gray-500 mt-1">Manage all restaurant branches</p>
+      {/* ── Page Header Card ── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">
+              Branch Management
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Create, update, and manage restaurant branches
+            </p>
+          </div>
+          <button
+            onClick={openCreate}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm shrink-0"
+          >
+            <PlusCircle size={18} />
+            Add Branch
+          </button>
         </div>
-        <button className="inline-flex items-center gap-2 bg-[#ff5a1f] text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-[#e04e18] transition-colors cursor-pointer">
-          <Plus size={18} />
-          Add Branch
-        </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Branch Name</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td colSpan={4} className="px-6 py-16 text-center text-gray-400">
-                  <div className="flex flex-col items-center gap-2">
-                    <Building2 size={36} className="text-gray-300" />
-                    <span className="text-sm font-medium">No branches yet</span>
-                    <span className="text-xs text-gray-300">Click &quot;Add Branch&quot; to create your first branch</span>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+      {/* ── Fetch error banner ── */}
+      {fetchError && (
+        <div className="mb-6 flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
+          {fetchError}
+          <button
+            onClick={fetchBranches}
+            className="ml-auto text-xs font-medium underline hover:no-underline cursor-pointer"
+          >
+            Retry
+          </button>
         </div>
+      )}
+
+      {/* ── Branch Table ── */}
+      <div id="branches-table" className="scroll-mt-24">
+      <BranchTable
+        branches={branches}
+        loading={loading}
+        onEdit={openEdit}
+        onDelete={handleDelete}
+      />
       </div>
+
+      {/* ── Create / Edit Modal ── */}
+      <CreateBranchModal
+        isOpen={modalOpen}
+        onClose={closeModal}
+        onSubmit={handleSubmit}
+        editBranch={editingBranch}
+      />
     </DashboardLayout>
   );
 }
