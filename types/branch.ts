@@ -22,12 +22,6 @@ export interface BranchFormData {
   status: "Active" | "Inactive";
 }
 
-/** Shape returned by GET /api/stats/dashboard */
-export interface DashboardStats {
-  totalBranches: number;
-  totalActiveBranches: number;
-}
-
 /** Generic API error shape */
 export interface ApiError {
   error: string;

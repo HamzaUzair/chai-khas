@@ -7,53 +7,247 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Branch {
-  branch_id   Int      @id @default(autoincrement())
-  branch_name String
-  branch_code String   @unique
-  address     String?
-  phone       String?
-  email       String?
-  status      String   @default("Active")
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+/// ── Enums for core domain ──
 
-  users       User[]
-  halls       Hall[]
-  tables      Table[]
-  kitchens    Kitchen[]
-  categories  Category[]
-  dishes      Dish[]
-  orders      Order[]
-  order_items OrderItem[]
-  printers    Printer[]
-  expenses    Expense[]
-  dayends     DayEnd[]
-  customers   Customer[]
+enum UserStatus {
+  Active
+  Inactive
+  Suspended
+}
+
+enum BranchStatus {
+  Active
+  Inactive
+}
+
+enum DealStatus {
+  Draft
+  Active
+  Expired
+}
+
+enum ProductStatus {
+  Active
+  Inactive
+  Archived
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  EASYPaisa
+  JAZZCash
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIAL
+  REFUNDED
+}
+
+enum InventoryUnit {
+  KG
+  G
+  LITER
+  ML
+  PIECE
+  PACK
+}
+
+enum StockTransactionType {
+  PURCHASE
+  ADJUSTMENT
+  WASTAGE
+  RECIPE_DEDUCTION
+  OPENING_STOCK
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+}
+
+enum PrinterType {
+  receipt
+  kitchen
+  bar
+  billing
+}
+
+/// Status for sellable menu items
+enum MenuItemStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Dedicated table for menu module (PostgreSQL table name: "menu")
+model Menu {
+  id            Int            @id @default(autoincrement())
+  itemName      String
+  description   String?
+  branchId      Int
+  category      String
+  price         Decimal        @default(0.00)
+  hasVariations Boolean        @default(false)
+  basePrice     Decimal?
+  status        MenuItemStatus @default(ACTIVE)
+  sku           String?
+  image         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  branch     Branch          @relation(fields: [branchId], references: [branch_id])
+  variations MenuVariation[]
+
+  @@index([branchId])
+  @@index([category])
+  @@index([status])
+  @@index([createdAt])
+  @@map("menu")
+}
+
+model MenuVariation {
+  id        Int      @id @default(autoincrement())
+  menuId    Int
+  name      String
+  price     Decimal  @default(0.00)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  menu Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  @@unique([menuId, name])
+  @@index([menuId])
+  @@index([sortOrder])
+  @@map("menu_item_variations")
+}
+
+model Branch {
+  branch_id           Int                  @id @default(autoincrement())
+  branch_name         String
+  branch_code         String               @unique
+  address             String?
+  phone               String?
+  email               String?
+  status              String               @default("Active")
+  created_at          DateTime             @default(now())
+  updated_at          DateTime             @updatedAt
+  categories          Category[]
+  customers           Customer[]
+  dayends             DayEnd[]
+  menu_items          MenuItem[]
+  expenses            Expense[]
+  halls               Hall[]
+  inventory_items     InventoryItem[]
+  kitchens            Kitchen[]
+  order_items         OrderItem[]
+  orders              Order[]
+  printers            Printer[]
+  recipes             Recipe[]
+  tables              Table[]
+  users               User[]
+  userRoleAssignments UserRoleAssignment[]
+  deals               Deal[]
+  branchInventories   BranchInventory[]
+  stockTransactions   StockTransaction[]
+  payments            Payment[]
+  menus               Menu[]
 
   @@map("branches")
 }
 
 model User {
-  id         Int      @id @default(autoincrement())
-  username   String   @unique
-  password   String
-  fullname   String?
-  token      String?
-  role       String   @default("order_taker")
-  branch_id  Int?
-  status     String   @default("Active")
-  terminal   Int      @default(1)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  branch         Branch?  @relation(fields: [branch_id], references: [branch_id])
-  orders_taken   Order[]  @relation("OrderTaker")
-  dayends_closed DayEnd[] @relation("ClosedBy")
+  id                  Int                  @id @default(autoincrement())
+  username            String               @unique
+  password            String
+  fullname            String?
+  token               String?
+  role                String               @default("BRANCH_ADMIN")
+  branch_id           Int?
+  status              String               @default("Active")
+  terminal            Int                  @default(1)
+  created_at          DateTime             @default(now())
+  updated_at          DateTime             @updatedAt
+  dayends_closed      DayEnd[]             @relation("ClosedBy")
+  orders_taken        Order[]              @relation("OrderTaker")
+  branch              Branch?              @relation(fields: [branch_id], references: [branch_id])
+  userRoleAssignments UserRoleAssignment[]
+  stockTransactions   StockTransaction[]
+  payments            Payment[]
 
   @@index([branch_id])
   @@index([username])
   @@map("users")
+}
+
+/// Role-based auth (extensible)
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  users       UserRoleAssignment[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  roles RolePermission[]
+}
+
+/// Many-to-many between users and roles (supports multi-branch in future)
+model UserRoleAssignment {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  role_id    Int
+  branch_id  Int?
+  created_at DateTime @default(now())
+
+  user   User    @relation(fields: [user_id], references: [id])
+  role   Role    @relation(fields: [role_id], references: [id])
+  branch Branch? @relation(fields: [branch_id], references: [branch_id])
+
+  @@unique([user_id, role_id, branch_id])
+  @@index([branch_id])
+}
+
+/// Many-to-many between roles and permissions
+model RolePermission {
+  id            Int      @id @default(autoincrement())
+  role_id       Int
+  permission_id Int
+  created_at    DateTime @default(now())
+
+  role       Role       @relation(fields: [role_id], references: [id])
+  permission Permission @relation(fields: [permission_id], references: [id])
+
+  @@unique([role_id, permission_id])
 }
 
 model Hall {
@@ -64,10 +258,9 @@ model Hall {
   branch_id  Int
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
-
-  branch Branch  @relation(fields: [branch_id], references: [branch_id])
-  tables Table[]
-  orders Order[]
+  branch     Branch   @relation(fields: [branch_id], references: [branch_id])
+  orders     Order[]
+  tables     Table[]
 
   @@index([branch_id])
   @@index([branch_id, terminal])
@@ -84,10 +277,9 @@ model Table {
   status       String   @default("Available")
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
-
-  hall   Hall    @relation(fields: [hall_id], references: [hall_id])
-  branch Branch  @relation(fields: [branch_id], references: [branch_id])
-  orders Order[]
+  orders       Order[]
+  branch       Branch   @relation(fields: [branch_id], references: [branch_id])
+  hall         Hall     @relation(fields: [hall_id], references: [hall_id])
 
   @@unique([hall_id, table_number, branch_id, terminal])
   @@index([branch_id])
@@ -97,21 +289,20 @@ model Table {
 }
 
 model Printer {
-  printer_id      Int      @id @default(autoincrement())
+  printer_id      Int         @id @default(autoincrement())
   name            String
   ip_address      String?
-  port            Int?     @default(9100)
-  connection_type String   @default("network")
+  port            Int?        @default(9100)
+  connection_type String      @default("network")
   usb_port        String?
   printer_name    String?
-  type            String   @default("receipt")
-  terminal        Int      @default(1)
+  type            PrinterType @default(receipt)
+  terminal        Int         @default(1)
   branch_id       Int?
-  status          String   @default("active")
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  branch Branch? @relation(fields: [branch_id], references: [branch_id])
+  status          String      @default("active")
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+  branch          Branch?     @relation(fields: [branch_id], references: [branch_id])
 
   @@index([branch_id, terminal])
   @@index([type])
@@ -119,18 +310,17 @@ model Printer {
 }
 
 model Kitchen {
-  kitchen_id Int      @id @default(autoincrement())
+  kitchen_id Int        @id @default(autoincrement())
   title      String
   code       String
   printer    String?
   branch_id  Int
-  terminal   Int      @default(1)
-  status     Int      @default(1)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  branch     Branch     @relation(fields: [branch_id], references: [branch_id])
+  terminal   Int        @default(1)
+  status     Int        @default(1)
+  created_at DateTime   @default(now())
+  updated_at DateTime   @updatedAt
   categories Category[]
+  branch     Branch     @relation(fields: [branch_id], references: [branch_id])
 
   @@unique([code, branch_id, terminal])
   @@index([branch_id])
@@ -139,19 +329,18 @@ model Kitchen {
 }
 
 model Category {
-  category_id Int      @id @default(autoincrement())
-  kid         Int      @default(0)
+  category_id Int        @id @default(autoincrement())
+  kid         Int        @default(0)
   name        String
   description String?
   kitchen_id  Int?
-  terminal    Int      @default(1)
+  terminal    Int        @default(1)
   branch_id   Int
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  branch  Branch   @relation(fields: [branch_id], references: [branch_id])
-  kitchen Kitchen? @relation(fields: [kitchen_id], references: [kitchen_id])
-  dishes  Dish[]
+  created_at  DateTime   @default(now())
+  updated_at  DateTime   @updatedAt
+  branch      Branch     @relation(fields: [branch_id], references: [branch_id])
+  kitchen     Kitchen?   @relation(fields: [kitchen_id], references: [kitchen_id])
+  menu_items  MenuItem[]
 
   @@index([branch_id])
   @@index([kitchen_id])
@@ -159,30 +348,162 @@ model Category {
   @@map("categories")
 }
 
-model Dish {
-  dish_id      Int      @id @default(autoincrement())
+/// Menu items (dishes) - stored in dishes table for backward compatibility
+model MenuItem {
+  dish_id      Int            @id @default(autoincrement())
   name         String
   description  String?
-  price        Decimal  @default(0.00)
-  qnty         Int      @default(0)
+  price        Decimal        @default(0.00)
+  qnty         Int            @default(0)
   barcode      String?
-  is_available Int      @default(1)
-  is_frequent  Int      @default(0)
-  discount     Decimal  @default(0.00)
+  is_available Int            @default(1)
+  is_frequent  Int            @default(0)
+  discount     Decimal        @default(0.00)
   category_id  Int
-  terminal     Int      @default(1)
+  terminal     Int            @default(1)
   branch_id    Int
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
-
-  branch      Branch      @relation(fields: [branch_id], references: [branch_id])
-  category    Category    @relation(fields: [category_id], references: [category_id])
-  order_items OrderItem[]
+  status       MenuItemStatus @default(ACTIVE)
+  created_at   DateTime       @default(now())
+  updated_at   DateTime       @updatedAt
+  branch       Branch         @relation(fields: [branch_id], references: [branch_id])
+  category     Category       @relation(fields: [category_id], references: [category_id], onDelete: Cascade)
+  order_items  OrderItem[]
+  recipes      Recipe[]       @relation("MenuItemRecipes")
+  dealItems    DealItem[]
 
   @@index([branch_id])
   @@index([category_id])
+  @@index([status])
+  @@index([created_at])
   @@index([branch_id, terminal])
+  @@index([branch_id, category_id, is_available])
   @@map("dishes")
+}
+
+/// Promotional deals (branch-specific or global)
+model Deal {
+  id             Int        @id @default(autoincrement())
+  branch_id      Int?
+  name           String
+  description    String?
+  status         DealStatus @default(Active)
+  discount_type  String // e.g. "PERCENTAGE" or "FIXED"
+  discount_value Decimal    @default(0.0)
+  starts_at      DateTime?
+  ends_at        DateTime?
+  created_at     DateTime   @default(now())
+  updated_at     DateTime   @updatedAt
+
+  branch Branch?    @relation(fields: [branch_id], references: [branch_id])
+  items  DealItem[]
+
+  @@index([branch_id])
+}
+
+/// Items included in a deal (ties to current menu items)
+model DealItem {
+  id         Int      @id @default(autoincrement())
+  deal_id    Int
+  dish_id    Int
+  quantity   Int      @default(1)
+  created_at DateTime @default(now())
+
+  deal      Deal     @relation(fields: [deal_id], references: [id])
+  menu_item MenuItem @relation(fields: [dish_id], references: [dish_id])
+
+  @@unique([deal_id, dish_id])
+}
+
+/// Inventory items (future database-backed stock items)
+model InventoryItem {
+  inventory_item_id Int                @id @default(autoincrement())
+  name              String
+  sku               String?
+  unit              InventoryUnit
+  branch_id         Int?
+  created_at        DateTime           @default(now())
+  updated_at        DateTime           @updatedAt
+  branch            Branch?            @relation(fields: [branch_id], references: [branch_id])
+  recipes           RecipeIngredient[] @relation("InventoryItemRecipeIngredients")
+  branchInventories BranchInventory[]
+  stockTransactions StockTransaction[]
+
+  @@index([branch_id])
+  @@map("inventory_items")
+}
+
+/// Per-branch stock levels (snapshot)
+model BranchInventory {
+  id                  Int      @id @default(autoincrement())
+  branch_id           Int
+  inventory_item_id   Int
+  quantity            Decimal  @default(0.0)
+  low_stock_threshold Decimal? @default(0.0)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  branch         Branch        @relation(fields: [branch_id], references: [branch_id])
+  inventory_item InventoryItem @relation(fields: [inventory_item_id], references: [inventory_item_id])
+
+  @@unique([branch_id, inventory_item_id])
+  @@index([branch_id])
+}
+
+/// Stock movements for audit and analytics
+model StockTransaction {
+  id                Int                  @id @default(autoincrement())
+  branch_id         Int
+  inventory_item_id Int
+  transaction_type  StockTransactionType
+  quantity          Decimal              @default(0.0)
+  unit_cost         Decimal?             @default(0.0)
+  note              String?
+  created_at        DateTime             @default(now())
+  created_by_id     Int?
+
+  branch         Branch        @relation(fields: [branch_id], references: [branch_id])
+  inventory_item InventoryItem @relation(fields: [inventory_item_id], references: [inventory_item_id])
+  created_by     User?         @relation(fields: [created_by_id], references: [id])
+
+  @@index([branch_id, inventory_item_id])
+  @@index([transaction_type])
+  @@index([created_at])
+}
+
+/// Recipe header per menu item
+model Recipe {
+  id           Int                @id @default(autoincrement())
+  menu_item_id Int
+  branch_id    Int?
+  status       String             @default("active")
+  created_at   DateTime           @default(now())
+  updated_at   DateTime           @updatedAt
+  items        RecipeIngredient[]
+  branch       Branch?            @relation(fields: [branch_id], references: [branch_id])
+  menu_item    MenuItem           @relation("MenuItemRecipes", fields: [menu_item_id], references: [dish_id])
+
+  @@index([menu_item_id])
+  @@index([branch_id])
+  @@map("recipes")
+}
+
+/// Individual ingredient lines within a recipe
+model RecipeIngredient {
+  id                Int           @id @default(autoincrement())
+  recipe_id         Int
+  inventory_item_id Int
+  quantity          Decimal       @default(0.0)
+  unit              String
+  wastage_percent   Decimal?      @default(0.0)
+  notes             String?
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  inventory_item    InventoryItem @relation("InventoryItemRecipeIngredients", fields: [inventory_item_id], references: [inventory_item_id])
+  recipe            Recipe        @relation(fields: [recipe_id], references: [id])
+
+  @@index([recipe_id])
+  @@index([inventory_item_id])
+  @@map("recipe_ingredients")
 }
 
 model Customer {
@@ -195,41 +516,40 @@ model Customer {
   branch_id   Int?
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
-
-  branch Branch? @relation(fields: [branch_id], references: [branch_id])
-  orders Order[]
+  branch      Branch?  @relation(fields: [branch_id], references: [branch_id])
+  orders      Order[]
 
   @@index([branch_id])
   @@map("customers")
 }
 
 model Order {
-  order_id         Int      @id @default(autoincrement())
-  order_type       String   @default("Dine In")
-  order_status     String   @default("Running")
+  order_id         Int         @id @default(autoincrement())
+  order_type       String      @default("Dine In")
+  order_status     String      @default("Running")
   hall_id          Int?
   table_id         Int?
   comments         String?
-  terminal         Int      @default(1)
+  terminal         Int         @default(1)
   order_taker_id   Int
   branch_id        Int
   customer_id      Int?
-  g_total_amount   Decimal  @default(0.00)
-  service_charge   Decimal  @default(0.00)
-  discount_amount  Decimal  @default(0.00)
-  net_total_amount Decimal  @default(0.00)
-  payment_mode     String   @default("Cash")
-  sts              Int      @default(0)
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
-
-  branch      Branch      @relation(fields: [branch_id], references: [branch_id])
-  hall        Hall?       @relation(fields: [hall_id], references: [hall_id])
-  table       Table?      @relation(fields: [table_id], references: [table_id])
-  order_taker User        @relation("OrderTaker", fields: [order_taker_id], references: [id])
-  customer    Customer?   @relation(fields: [customer_id], references: [customer_id])
-  order_items OrderItem[]
-  bill        Bill?
+  g_total_amount   Decimal     @default(0.00)
+  service_charge   Decimal     @default(0.00)
+  discount_amount  Decimal     @default(0.00)
+  net_total_amount Decimal     @default(0.00)
+  payment_mode     String      @default("Cash")
+  sts              Int         @default(0)
+  created_at       DateTime    @default(now())
+  updated_at       DateTime    @updatedAt
+  bill             Bill?
+  order_items      OrderItem[]
+  branch           Branch      @relation(fields: [branch_id], references: [branch_id])
+  customer         Customer?   @relation(fields: [customer_id], references: [customer_id])
+  hall             Hall?       @relation(fields: [hall_id], references: [hall_id])
+  order_taker      User        @relation("OrderTaker", fields: [order_taker_id], references: [id])
+  table            Table?      @relation(fields: [table_id], references: [table_id])
+  payments         Payment[]
 
   @@index([branch_id])
   @@index([customer_id])
@@ -242,17 +562,16 @@ model Order {
 }
 
 model OrderItem {
-  item_id      Int     @id @default(autoincrement())
+  item_id      Int      @id @default(autoincrement())
   order_id     Int
   dish_id      Int
-  quantity     Decimal @default(1)
-  price        Decimal @default(0.00)
-  total_amount Decimal @default(0.00)
+  quantity     Decimal  @default(1)
+  price        Decimal  @default(0.00)
+  total_amount Decimal  @default(0.00)
   branch_id    Int
-
-  order  Order  @relation(fields: [order_id], references: [order_id])
-  dish   Dish   @relation(fields: [dish_id], references: [dish_id])
-  branch Branch @relation(fields: [branch_id], references: [branch_id])
+  branch       Branch   @relation(fields: [branch_id], references: [branch_id])
+  menu_item    MenuItem @relation(fields: [dish_id], references: [dish_id])
+  order        Order    @relation(fields: [order_id], references: [order_id])
 
   @@index([order_id])
   @@index([dish_id])
@@ -271,29 +590,62 @@ model Bill {
   payment_status String   @default("Unpaid")
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
-
-  order Order @relation(fields: [order_id], references: [order_id])
+  order          Order    @relation(fields: [order_id], references: [order_id])
 
   @@index([order_id])
   @@index([payment_status])
   @@map("bills")
 }
 
-model Expense {
-  id          Int      @id @default(autoincrement())
-  title       String
-  amount      Decimal  @default(0.00)
-  description String?
-  branch_id   Int?
-  terminal    Int      @default(1)
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+/// Payments for orders (supports multiple methods/future split payments)
+model Payment {
+  id            Int           @id @default(autoincrement())
+  order_id      Int
+  branch_id     Int
+  amount        Decimal       @default(0.00)
+  method        PaymentMethod
+  status        PaymentStatus @default(PAID)
+  reference     String?
+  paid_at       DateTime      @default(now())
+  created_at    DateTime      @default(now())
+  created_by_id Int?
 
-  branch Branch? @relation(fields: [branch_id], references: [branch_id])
+  order      Order  @relation(fields: [order_id], references: [order_id])
+  branch     Branch @relation(fields: [branch_id], references: [branch_id])
+  created_by User?  @relation(fields: [created_by_id], references: [id])
+
+  @@index([order_id])
+  @@index([branch_id])
+  @@index([method])
+  @@index([status])
+}
+
+model Expense {
+  id                Int              @id @default(autoincrement())
+  title             String
+  amount            Decimal          @default(0.00)
+  description       String?
+  branch_id         Int?
+  terminal          Int              @default(1)
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+  branch            Branch?          @relation(fields: [branch_id], references: [branch_id])
+  expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
+  expenseCategoryId Int?
 
   @@index([branch_id])
   @@index([branch_id, terminal])
   @@map("expenses")
+}
+
+model ExpenseCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  expenses Expense[]
 }
 
 model DayEnd {
@@ -314,9 +666,8 @@ model DayEnd {
   note              String?
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
-
-  branch    Branch @relation(fields: [branch_id], references: [branch_id])
-  closed_by User?  @relation("ClosedBy", fields: [closing_by], references: [id])
+  branch            Branch   @relation(fields: [branch_id], references: [branch_id])
+  closed_by         User     @relation("ClosedBy", fields: [closing_by], references: [id])
 
   @@index([branch_id])
   @@index([closing_date_time])

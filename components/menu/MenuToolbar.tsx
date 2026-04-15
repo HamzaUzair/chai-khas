@@ -21,8 +21,8 @@ interface MenuToolbarProps {
   onSearchChange: (v: string) => void;
   /* category */
   categories: string[];
-  filterCategory: string;
-  onCategoryChange: (v: string) => void;
+  filterCategoryName: string | "all";
+  onCategoryChange: (v: string | "all") => void;
   /* view */
   view: ViewMode;
   onViewChange: (v: ViewMode) => void;
@@ -41,7 +41,7 @@ const MenuToolbar: React.FC<MenuToolbarProps> = ({
   search,
   onSearchChange,
   categories,
-  filterCategory,
+  filterCategoryName,
   onCategoryChange,
   view,
   onViewChange,
@@ -81,13 +81,13 @@ const MenuToolbar: React.FC<MenuToolbarProps> = ({
         </label>
         <select
           className="w-full border border-gray-200 rounded-lg px-3.5 py-2 text-sm text-gray-700 bg-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
-          value={filterCategory}
-          onChange={(e) => onCategoryChange(e.target.value)}
+          value={filterCategoryName}
+          onChange={(e) => onCategoryChange(e.target.value === "all" ? "all" : e.target.value)}
         >
           <option value="all">All Categories</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
+          {categories.map((name) => (
+            <option key={name} value={name}>
+              {name}
             </option>
           ))}
         </select>

@@ -48,8 +48,8 @@ const MenuItemCard: React.FC<MenuItemCardProps> = ({
     {/* Top row: category badge + actions */}
     <div className="flex items-start justify-between mb-3">
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#ff5a1f]/8 text-[#ff5a1f] text-xs font-semibold">
-        {getCatIcon(item.category)}
-        {item.category}
+        {getCatIcon(item.categoryName)}
+        {item.categoryName}
       </span>
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
@@ -86,8 +86,24 @@ const MenuItemCard: React.FC<MenuItemCardProps> = ({
     <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50">
       <div className="flex flex-col">
         <span className="text-base font-bold text-gray-800">
-          PKR {item.price.toLocaleString()}
+          {item.hasVariations && item.variations.length > 0 ? (
+            (() => {
+              const prices = item.variations.map((v) => v.price);
+              const min = Math.min(...prices);
+              const max = Math.max(...prices);
+              return min === max
+                ? `PKR ${min.toLocaleString()}`
+                : `PKR ${min.toLocaleString()} - ${max.toLocaleString()}`;
+            })()
+          ) : (
+            `PKR ${item.displayPrice.toLocaleString()}`
+          )}
         </span>
+        {item.hasVariations && item.variations.length > 0 && (
+          <span className="text-[11px] text-[#ff5a1f] font-medium mt-0.5">
+            {item.variations.length} Variations
+          </span>
+        )}
         <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 mt-0.5">
           <Building2 size={11} />
           {item.branchName}

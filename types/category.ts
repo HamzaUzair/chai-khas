@@ -1,18 +1,12 @@
 /* ── Category Management types ── */
 
-export interface CategoryMenuItem {
-  id: string;
-  name: string;
-  price: number;
-  isActive: boolean;
-}
-
 export interface Category {
-  id: string;
+  id: number;
   name: string;
   itemCount: number;
   isActive: boolean;
-  items: CategoryMenuItem[];
+  branchId: number;
+  branchName: string;
 }
 
 export interface BranchCategoryData {
@@ -21,15 +15,21 @@ export interface BranchCategoryData {
   categories: Category[];
 }
 
-export interface CategoryFormData {
+// API response types (category-only, no items)
+export interface ApiCategory {
+  category_id: number;
   name: string;
-  itemCount: number;
-  isActive: boolean;
-  branchId?: number; // required when filter is "All Branches"
+  description: string | null;
+  branch_id: number;
+  branch_name: string;
+  is_active: boolean;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface ItemFormData {
+export interface CategoryFormData {
   name: string;
-  price: string; // string for form input
   isActive: boolean;
+  branchId?: number; // required when filter is "All Branches"
 }

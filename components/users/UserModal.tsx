@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { X, UserCog } from "lucide-react";
 import type { AppUser, UserFormData, UserRole } from "@/types/user";
-import { USER_ROLES } from "@/types/user";
+import { USER_ROLES, USER_ROLE_LABELS } from "@/types/user";
 
 const emptyForm: UserFormData = {
   username: "",
@@ -41,6 +41,10 @@ const UserModal: React.FC<UserModalProps> = ({
   const [errors, setErrors] = useState<Partial<Record<keyof UserFormData, string>>>({});
   const isEdit = !!editUser;
 
+  /* ── Normalize legacy role strings to UserRole ── */
+  const normalizeRole = (r: string): UserRole =>
+    r === "Super Admin" || r === "SUPER_ADMIN" ? "SUPER_ADMIN" : "BRANCH_ADMIN";
+
   /* ── Reset on open ── */
   useEffect(() => {
     if (!isOpen) return;
@@ -50,7 +54,7 @@ const UserModal: React.FC<UserModalProps> = ({
         fullName: editUser.fullName,
         password: "",
         confirmPassword: "",
-        role: editUser.role,
+        role: normalizeRole(editUser.role),
         branchId: editUser.branchId ?? "",
         terminal: String(editUser.terminal),
         status: editUser.status,
@@ -74,7 +78,7 @@ const UserModal: React.FC<UserModalProps> = ({
   }, [handleKey]);
 
   /* ── Super Admin → no branch ── */
-  const isSuperAdmin = form.role === "Super Admin";
+  const isSuperAdmin = form.role === "SUPER_ADMIN";
   useEffect(() => {
     if (isSuperAdmin) setForm((p) => ({ ...p, branchId: "" }));
   }, [isSuperAdmin]);
@@ -104,7 +108,7 @@ const UserModal: React.FC<UserModalProps> = ({
 
     if (!form.role) errs.role = "Please select a role.";
 
-    if (!isSuperAdmin && form.branchId === "") errs.branchId = "Please select a branch.";
+    if (form.role === "BRANCH_ADMIN" && form.branchId === "") errs.branchId = "Branch is required for Branch Admin.";
 
     const t = Number(form.terminal);
     if (isNaN(t) || t < 1) errs.terminal = "Terminal must be ≥ 1.";
@@ -226,11 +230,8 @@ const UserModal: React.FC<UserModalProps> = ({
               onChange={(e) => setForm((p) => ({ ...p, role: e.target.value as UserRole | "" }))}
             >
               <option value="">Select role</option>
-              {USER_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
+              <option value="SUPER_ADMIN">Super Admin</option>
+              <option value="BRANCH_ADMIN">Branch Admin</option>
             </select>
             {errors.role && <p className="text-xs text-red-500 mt-1">{errors.role}</p>}
           </div>
@@ -264,9 +265,9 @@ const UserModal: React.FC<UserModalProps> = ({
                 </>
               )}
             </select>
-            {!isSuperAdmin && (
+            {form.role === "BRANCH_ADMIN" && (
               <p className="text-[11px] text-gray-400 mt-1">
-                Required for all roles except Super Admin
+                Required for Branch Admin
               </p>
             )}
             {errors.branchId && <p className="text-xs text-red-500 mt-1">{errors.branchId}</p>}

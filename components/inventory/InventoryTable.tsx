@@ -23,6 +23,12 @@ const CAT_BADGE: Record<string, string> = {
   Other: "bg-slate-100 text-slate-600",
 };
 
+function formatLastUpdated(value: number): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return format(d, "dd MMM yyyy");
+}
+
 function stockBadge(item: InventoryItem) {
   if (item.inStock === 0) return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">Out of Stock</span>;
   if (item.inStock <= item.minStock) return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">Low Stock</span>;
@@ -117,7 +123,7 @@ const InventoryTable: React.FC<Props> = ({ items, loading, onView, onAdjust, onE
                 <td className="px-4 py-3 whitespace-nowrap">
                   <div className="flex items-center gap-1.5 text-xs text-gray-500">
                     <Calendar size={11} className="text-gray-400 shrink-0" />
-                    {format(new Date(item.lastUpdated), "dd MMM yyyy")}
+                    {formatLastUpdated(item.lastUpdated)}
                   </div>
                 </td>
 

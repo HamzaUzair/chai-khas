@@ -58,16 +58,12 @@ export function generateDemoUsers(
     terminal: number;
     daysAgo: number;
   }[] = [
-    { username: "sdmain@gmail.com", fullName: "Hamza Badar", role: "Super Admin", branchIdx: null, status: "Active", terminal: 1, daysAgo: 90 },
-    { username: "admin@mainbranch.com", fullName: "Ali Ahmed", role: "Branch Admin", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 60 },
-    { username: "order1@mainbranch.com", fullName: "Sara Khan", role: "Order Taker", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 45 },
-    { username: "kitchen@mainbranch.com", fullName: "Usman Malik", role: "Kitchen Staff", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 45 },
-    { username: "admin@north.com", fullName: "Fatima Noor", role: "Branch Admin", branchIdx: 1, status: "Active", terminal: 1, daysAgo: 30 },
-    { username: "order1@north.com", fullName: "Hassan Raza", role: "Order Taker", branchIdx: 1, status: "Active", terminal: 2, daysAgo: 25 },
-    { username: "accounts@north.com", fullName: "Ayesha Siddiqui", role: "Accountant", branchIdx: 1, status: "Active", terminal: 1, daysAgo: 20 },
-    { username: "order2@mainbranch.com", fullName: "Bilal Shah", role: "Order Taker", branchIdx: 0, status: "Inactive", terminal: 1, daysAgo: 50 },
-    { username: "admin@downtown.com", fullName: "Zainab Tariq", role: "Branch Admin", branchIdx: 2, status: "Active", terminal: 1, daysAgo: 15 },
-    { username: "kitchen@downtown.com", fullName: "Imran Yousaf", role: "Kitchen Staff", branchIdx: 2, status: "Active", terminal: 1, daysAgo: 10 },
+    { username: "sdmain@gmail.com", fullName: "Hamza Badar", role: "SUPER_ADMIN", branchIdx: null, status: "Active", terminal: 1, daysAgo: 90 },
+    { username: "admin@mainbranch.com", fullName: "Ali Ahmed", role: "BRANCH_ADMIN", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 60 },
+    { username: "admin@north.com", fullName: "Fatima Noor", role: "BRANCH_ADMIN", branchIdx: 1, status: "Active", terminal: 1, daysAgo: 30 },
+    { username: "admin@downtown.com", fullName: "Zainab Tariq", role: "BRANCH_ADMIN", branchIdx: 2, status: "Active", terminal: 1, daysAgo: 15 },
+    { username: "admin@gulberg.com", fullName: "Sara Khan", role: "BRANCH_ADMIN", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 10 },
+    { username: "branch2@mainbranch.com", fullName: "Hassan Raza", role: "BRANCH_ADMIN", branchIdx: 1, status: "Inactive", terminal: 2, daysAgo: 50 },
   ];
 
   return demos.map((d, i) => {

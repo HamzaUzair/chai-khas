@@ -1,24 +1,22 @@
 /* ── User / Account Management types ── */
 
-export type UserRole =
-  | "Super Admin"
-  | "Branch Admin"
-  | "Order Taker"
-  | "Accountant"
-  | "Kitchen Staff";
+export type UserRole = "SUPER_ADMIN" | "BRANCH_ADMIN";
 
-export const USER_ROLES: UserRole[] = [
-  "Super Admin",
-  "Branch Admin",
-  "Order Taker",
-  "Accountant",
-  "Kitchen Staff",
-];
+export const USER_ROLES: UserRole[] = ["SUPER_ADMIN", "BRANCH_ADMIN"];
+
+export const USER_ROLE_LABELS: Record<UserRole, string> = {
+  SUPER_ADMIN: "Super Admin",
+  BRANCH_ADMIN: "Branch Admin",
+};
+
+export function getRoleLabel(role: string): string {
+  return USER_ROLE_LABELS[role as UserRole] ?? role;
+}
 
 export interface AppUser {
   id: string;
-  userId: number;        // display ID (auto-increment locally)
-  username: string;      // email-style
+  userId: number;
+  username: string;
   fullName: string;
   role: UserRole;
   branchId: number | null;
@@ -36,6 +34,6 @@ export interface UserFormData {
   confirmPassword: string;
   role: UserRole | "";
   branchId: number | "";
-  terminal: string;       // string for number input
+  terminal: string;
   status: "Active" | "Inactive";
 }

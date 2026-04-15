@@ -12,14 +12,12 @@ import {
   Shield,
 } from "lucide-react";
 import type { AppUser, UserRole } from "@/types/user";
+import { getRoleLabel } from "@/types/user";
 
 /* ── Role badge colours ── */
 const ROLE_BADGE: Record<UserRole, string> = {
-  "Super Admin": "bg-purple-50 text-purple-700",
-  "Branch Admin": "bg-blue-50 text-blue-700",
-  "Order Taker": "bg-green-50 text-green-700",
-  Accountant: "bg-amber-50 text-amber-700",
-  "Kitchen Staff": "bg-teal-50 text-teal-700",
+  SUPER_ADMIN: "bg-purple-50 text-purple-700",
+  BRANCH_ADMIN: "bg-blue-50 text-blue-700",
 };
 
 function fmtDate(ts: number) {
@@ -101,10 +99,10 @@ const UsersTable: React.FC<UsersTableProps> = ({ users, loading, onEdit, onDelet
                 {/* Role */}
                 <td className="px-5 py-3.5 whitespace-nowrap">
                   <span
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${ROLE_BADGE[user.role]}`}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${ROLE_BADGE[user.role as UserRole] ?? "bg-gray-50 text-gray-700"}`}
                   >
                     <Shield size={11} />
-                    {user.role}
+                    {getRoleLabel(user.role)}
                   </span>
                 </td>
 

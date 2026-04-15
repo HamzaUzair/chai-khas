@@ -12,13 +12,11 @@ import {
   Shield,
 } from "lucide-react";
 import type { AppUser, UserRole } from "@/types/user";
+import { getRoleLabel } from "@/types/user";
 
 const ROLE_BADGE: Record<UserRole, string> = {
-  "Super Admin": "bg-purple-50 text-purple-700",
-  "Branch Admin": "bg-blue-50 text-blue-700",
-  "Order Taker": "bg-green-50 text-green-700",
-  Accountant: "bg-amber-50 text-amber-700",
-  "Kitchen Staff": "bg-teal-50 text-teal-700",
+  SUPER_ADMIN: "bg-purple-50 text-purple-700",
+  BRANCH_ADMIN: "bg-blue-50 text-blue-700",
 };
 
 function fmtDate(ts: number) {
@@ -84,8 +82,8 @@ const UserCardList: React.FC<UserCardListProps> = ({ users, loading, onEdit, onD
           <div className="grid grid-cols-2 gap-2 mb-3">
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <Shield size={12} className="text-gray-400" />
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${ROLE_BADGE[user.role]}`}>
-                {user.role}
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${ROLE_BADGE[user.role as UserRole] ?? "bg-gray-50 text-gray-700"}`}>
+                {getRoleLabel(user.role)}
               </span>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-gray-500">

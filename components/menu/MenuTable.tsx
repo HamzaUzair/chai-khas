@@ -113,9 +113,9 @@ const MenuTable: React.FC<MenuTableProps> = ({
                 {/* Category */}
                 <td className="px-5 py-3.5 whitespace-nowrap">
                   <span className="inline-flex items-center gap-1.5 text-[#ff5a1f]">
-                    {getCatIcon(item.category)}
+                    {getCatIcon(item.categoryName)}
                     <span className="text-xs font-medium text-gray-600">
-                      {item.category}
+                      {item.categoryName}
                     </span>
                   </span>
                 </td>
@@ -131,8 +131,24 @@ const MenuTable: React.FC<MenuTableProps> = ({
                 {/* Price */}
                 <td className="px-5 py-3.5 whitespace-nowrap">
                   <span className="font-semibold text-gray-800">
-                    PKR {item.price.toLocaleString()}
+                    {item.hasVariations && item.variations.length > 0 ? (
+                      (() => {
+                        const prices = item.variations.map((v) => v.price);
+                        const min = Math.min(...prices);
+                        const max = Math.max(...prices);
+                        return min === max
+                          ? `PKR ${min.toLocaleString()}`
+                          : `PKR ${min.toLocaleString()} - ${max.toLocaleString()}`;
+                      })()
+                    ) : (
+                      `PKR ${item.displayPrice.toLocaleString()}`
+                    )}
                   </span>
+                  {item.hasVariations && item.variations.length > 0 && (
+                    <p className="text-[11px] text-[#ff5a1f] mt-0.5">
+                      {item.variations.length} Variations
+                    </p>
+                  )}
                 </td>
 
                 {/* Status */}

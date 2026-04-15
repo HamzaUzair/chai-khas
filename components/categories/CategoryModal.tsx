@@ -10,7 +10,6 @@ interface CategoryModalProps {
   onClose: () => void;
   onSave: (data: {
     name: string;
-    itemCount: number;
     isActive: boolean;
     branchId: number;
   }) => void;
@@ -30,7 +29,6 @@ const CategoryModal: React.FC<CategoryModalProps> = ({
   showBranchSelect,
 }) => {
   const [name, setName] = useState("");
-  const [itemCount, setItemCount] = useState(0);
   const [isActive, setIsActive] = useState(true);
   const [branchId, setBranchId] = useState<number | "">(
     editBranchId ?? ""
@@ -41,12 +39,10 @@ const CategoryModal: React.FC<CategoryModalProps> = ({
     if (isOpen) {
       if (editCategory) {
         setName(editCategory.name);
-        setItemCount(editCategory.itemCount);
         setIsActive(editCategory.isActive);
         setBranchId(editBranchId ?? "");
       } else {
         setName("");
-        setItemCount(0);
         setIsActive(true);
         setBranchId(editBranchId ?? (activeBranches[0]?.branch_id ?? ""));
       }
@@ -68,7 +64,6 @@ const CategoryModal: React.FC<CategoryModalProps> = ({
       typeof branchId === "number" ? branchId : editBranchId ?? 0;
     onSave({
       name: name.trim(),
-      itemCount: Math.max(0, itemCount),
       isActive,
       branchId: resolvedBranchId,
     });
@@ -134,20 +129,6 @@ const CategoryModal: React.FC<CategoryModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. BBQ, Karahi"
-            />
-          </div>
-
-          {/* Item count */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Item Count
-            </label>
-            <input
-              type="number"
-              min={0}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
-              value={itemCount}
-              onChange={(e) => setItemCount(Number(e.target.value))}
             />
           </div>
 

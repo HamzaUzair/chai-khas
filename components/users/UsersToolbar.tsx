@@ -3,7 +3,7 @@
 import React from "react";
 import { Search, Shield, Building2, CircleDot } from "lucide-react";
 import type { UserRole } from "@/types/user";
-import { USER_ROLES } from "@/types/user";
+import { USER_ROLES, USER_ROLE_LABELS } from "@/types/user";
 
 interface BranchOption {
   branch_id: number;
@@ -74,7 +74,7 @@ const UsersToolbar: React.FC<UsersToolbarProps> = ({
             <option value="all">All Roles</option>
             {USER_ROLES.map((r) => (
               <option key={r} value={r}>
-                {r}
+                {USER_ROLE_LABELS[r]}
               </option>
             ))}
           </select>

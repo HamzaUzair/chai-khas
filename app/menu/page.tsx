@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PlusCircle, UtensilsCrossed } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -11,11 +11,26 @@ import MenuItemModal from "@/components/menu/MenuItemModal";
 import type { ViewMode } from "@/components/menu/ViewToggle";
 import type { Branch } from "@/types/branch";
 import type { MenuItem, MenuItemFormData } from "@/types/menu";
-import {
-  getMenuItems,
-  setMenuItems as persistMenuItems,
-  generateDemoMenuItems,
-} from "@/lib/menuStorage";
+import type { ApiCategory } from "@/types/category";
+
+interface ApiMenuRow {
+  id: number;
+  itemName: string;
+  description: string | null;
+  branchId: number;
+  branchName: string;
+  category: string;
+  price: number;
+  hasVariations: boolean;
+  basePrice: number | null;
+  variations: Array<{
+    id: number;
+    name: string;
+    price: number;
+    sortOrder: number;
+  }>;
+  status: "active" | "inactive";
+}
 
 export default function MenuPage() {
   const router = useRouter();
@@ -25,8 +40,10 @@ export default function MenuPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
 
-  /* ── Menu items (localStorage-backed) ── */
+  /* ── Menu items from API ── */
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [menuItemsLoading, setMenuItemsLoading] = useState(true);
+  const [categoryNames, setCategoryNames] = useState<string[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
 
@@ -34,8 +51,9 @@ export default function MenuPage() {
   const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [search, setSearch] = useState("");
-  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterCategoryName, setFilterCategoryName] = useState<string | "all">("all");
   const [view, setView] = useState<ViewMode>("grid");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   /* ──────────────── Auth guard ──────────────── */
   useEffect(() => {
@@ -65,67 +83,88 @@ export default function MenuPage() {
     if (authorized) fetchBranches();
   }, [authorized, fetchBranches]);
 
-  /* ──────────────── Load / init localStorage ──────────────── */
+  /* ──────────────── Debounce search (300ms) ──────────────── */
   useEffect(() => {
-    if (!authorized || branchesLoading) return;
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
-    let stored = getMenuItems();
-    if (stored.length === 0 && branches.length > 0) {
-      stored = generateDemoMenuItems(
-        branches.map((b) => ({
-          branchId: b.branch_id,
-          branchName: b.branch_name,
+  /* ──────────────── Fetch menu items from dedicated /api/menu ──────────────── */
+  const fetchMenuItems = useCallback(async () => {
+    setMenuItemsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filterBranchId !== "all") params.set("branchId", String(filterBranchId));
+      if (filterCategoryName !== "all") params.set("category", filterCategoryName);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+      const url = `/api/menu${params.toString() ? `?${params}` : ""}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error();
+      const data: ApiMenuRow[] = await res.json();
+      // API already returns branchName, but ensure type alignment
+      setMenuItems(
+        data.map((item) => ({
+          id: item.id,
+          name: item.itemName,
+          description: item.description ?? undefined,
+          branchId: item.branchId,
+          branchName: item.branchName ?? "",
+          categoryId: undefined,
+          categoryName: item.category ?? "",
+          hasVariations: item.hasVariations,
+          basePrice: item.basePrice,
+          variations: item.variations ?? [],
+          displayPrice: Number(item.price),
+          status: item.status === "inactive" ? "inactive" : "active",
         }))
       );
-      persistMenuItems(stored);
+    } catch {
+      setMenuItems([]);
+    } finally {
+      setMenuItemsLoading(false);
     }
-    setMenuItems(stored);
-  }, [authorized, branchesLoading, branches]);
+  }, [filterBranchId, filterCategoryName, statusFilter, debouncedSearch]);
 
-  /* ──────────────── Persist helper ──────────────── */
-  const persist = useCallback((updated: MenuItem[]) => {
-    setMenuItems(updated);
-    persistMenuItems(updated);
-  }, []);
-
-  /* ──────────────── Derived: unique categories from items ──────────────── */
-  const uniqueCategories = useMemo(() => {
-    const cats = new Set(menuItems.map((m) => m.category));
-    return Array.from(cats).sort();
-  }, [menuItems]);
-
-  /* ──────────────── Filtered items ──────────────── */
-  const filteredItems = useMemo(() => {
-    let result = menuItems;
-
-    // Branch
-    if (filterBranchId !== "all") {
-      result = result.filter((m) => m.branchId === filterBranchId);
+  useEffect(() => {
+    if (authorized && !branchesLoading) {
+      fetchMenuItems();
     }
+  }, [authorized, branchesLoading, fetchMenuItems]);
 
-    // Status
-    if (statusFilter !== "all") {
-      result = result.filter((m) => m.status === statusFilter);
+  /* ──────────────── Fetch categories from API ──────────────── */
+  const fetchCategoryNames = useCallback(async () => {
+    try {
+      const url =
+        filterBranchId === "all"
+          ? "/api/categories"
+          : `/api/categories?branch_id=${filterBranchId}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error();
+      const data: ApiCategory[] = await res.json();
+
+      // Keep menu categories aligned with Categories module visibility:
+      // only categories that belong to currently active branches.
+      const activeBranchIds = new Set(branches.map((b) => b.branch_id));
+      const visibleCategories = data.filter((c) => activeBranchIds.has(c.branch_id));
+
+      const names = Array.from(
+        new Set(visibleCategories.map((c) => c.name).filter((n) => n.trim().length > 0))
+      ).sort((a, b) => a.localeCompare(b));
+      setCategoryNames(names);
+    } catch {
+      setCategoryNames([]);
     }
+  }, [filterBranchId, branches]);
 
-    // Category
-    if (filterCategory !== "all") {
-      result = result.filter((m) => m.category === filterCategory);
+  useEffect(() => {
+    if (authorized && !branchesLoading) {
+      fetchCategoryNames();
     }
+  }, [authorized, branchesLoading, fetchCategoryNames]);
 
-    // Search
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      result = result.filter(
-        (m) =>
-          m.name.toLowerCase().includes(q) ||
-          m.category.toLowerCase().includes(q) ||
-          m.branchName.toLowerCase().includes(q)
-      );
-    }
-
-    return result;
-  }, [menuItems, filterBranchId, statusFilter, filterCategory, search]);
+  /* ──────────────── Filtered items (server-side filtering via API) ──────────────── */
+  const filteredItems = menuItems;
 
   /* ──────────────── CRUD handlers ──────────────── */
   const openCreate = () => {
@@ -143,47 +182,80 @@ export default function MenuPage() {
     setEditingItem(null);
   };
 
-  const handleSave = (data: MenuItemFormData) => {
-    const branch = branches.find(
-      (b) => b.branch_id === Number(data.branchId)
-    );
+  const handleSave = async (data: MenuItemFormData) => {
+    const branch = branches.find((b) => b.branch_id === Number(data.branchId));
+    if (!branch || !data.categoryName?.trim()) return;
 
-    if (editingItem) {
-      const updated = menuItems.map((m) =>
-        m.id === editingItem.id
-          ? {
-              ...m,
-              name: data.name.trim(),
-              description: data.description.trim() || undefined,
-              branchId: Number(data.branchId),
-              branchName: branch?.branch_name ?? "",
-              category: data.category,
-              price: parseFloat(data.price) || 0,
-              status: data.status,
-            }
-          : m
-      );
-      persist(updated);
-    } else {
-      const newItem: MenuItem = {
-        id: (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`),
-        name: data.name.trim(),
-        description: data.description.trim() || undefined,
-        branchId: Number(data.branchId),
-        branchName: branch?.branch_name ?? "",
-        category: data.category,
-        price: parseFloat(data.price) || 0,
-        status: data.status,
-        createdAt: Date.now(),
-      };
-      persist([newItem, ...menuItems]);
+    try {
+      if (editingItem) {
+        const res = await fetch(`/api/menu/${editingItem.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            itemName: data.name.trim(),
+            description: data.description?.trim() || null,
+            category: data.categoryName.trim(),
+            hasVariations: data.hasVariations,
+            basePrice: data.hasVariations ? null : parseFloat(data.basePrice) || 0,
+            variations: data.hasVariations
+              ? data.variations.map((row) => ({
+                  name: row.name.trim(),
+                  price: parseFloat(row.price) || 0,
+                }))
+              : [],
+            status: data.status,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Failed to update");
+        }
+      } else {
+        const res = await fetch("/api/menu", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            itemName: data.name.trim(),
+            description: data.description?.trim() || null,
+            category: data.categoryName.trim(),
+            branchId: branch.branch_id,
+            hasVariations: data.hasVariations,
+            basePrice: data.hasVariations ? null : parseFloat(data.basePrice) || 0,
+            variations: data.hasVariations
+              ? data.variations.map((row) => ({
+                  name: row.name.trim(),
+                  price: parseFloat(row.price) || 0,
+                }))
+              : [],
+            status: data.status,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Failed to create");
+        }
+      }
+      await fetchMenuItems();
+      closeModal();
+    } catch (error) {
+      console.error("Error saving menu item:", error);
+      alert(error instanceof Error ? error.message : "Failed to save");
     }
-    closeModal();
   };
 
-  const handleDelete = (item: MenuItem) => {
+  const handleDelete = async (item: MenuItem) => {
     if (!window.confirm(`Delete "${item.name}"?`)) return;
-    persist(menuItems.filter((m) => m.id !== item.id));
+    try {
+      const res = await fetch(`/api/menu/${item.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to delete");
+      }
+      await fetchMenuItems();
+    } catch (error) {
+      console.error("Error deleting menu item:", error);
+      alert(error instanceof Error ? error.message : "Failed to delete");
+    }
   };
 
   /* ──────────────── Loading ──────────────── */
@@ -197,7 +269,6 @@ export default function MenuPage() {
 
   const noBranches = !branchesLoading && branches.length === 0;
 
-  /* ──────────────── Count badges ──────────────── */
   const activeCount = menuItems.filter((m) => m.status === "active").length;
   const inactiveCount = menuItems.filter((m) => m.status === "inactive").length;
 
@@ -213,7 +284,6 @@ export default function MenuPage() {
             <p className="text-sm text-gray-500 mt-1">
               Manage menu items, prices, and categories across all branches
             </p>
-            {/* Stats */}
             <div className="flex items-center gap-4 mt-3">
               <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
                 <UtensilsCrossed size={13} className="text-gray-400" />
@@ -251,25 +321,27 @@ export default function MenuPage() {
         branches={branches}
         branchesLoading={branchesLoading}
         filterBranchId={filterBranchId}
-        onBranchChange={setFilterBranchId}
+        onBranchChange={(v) => {
+          setFilterBranchId(v);
+          setFilterCategoryName("all");
+        }}
         statusFilter={statusFilter}
         onStatusChange={setStatusFilter}
         search={search}
         onSearchChange={setSearch}
-        categories={uniqueCategories}
-        filterCategory={filterCategory}
-        onCategoryChange={setFilterCategory}
+        categories={categoryNames}
+        filterCategoryName={filterCategoryName}
+        onCategoryChange={setFilterCategoryName}
         view={view}
         onViewChange={setView}
       />
 
       {/* ── Content ── */}
-      {branchesLoading ? (
+      {branchesLoading || menuItemsLoading ? (
         <div className="flex items-center justify-center py-20">
           <div className="animate-spin h-8 w-8 border-4 border-[#ff5a1f] border-t-transparent rounded-full" />
         </div>
       ) : view === "grid" ? (
-        /* Grid view */
         filteredItems.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
             <div className="px-6 py-16 flex flex-col items-center gap-3 text-center">
@@ -294,7 +366,6 @@ export default function MenuPage() {
           </div>
         )
       ) : (
-        /* Table view */
         <MenuTable
           items={filteredItems}
           loading={false}
@@ -311,7 +382,6 @@ export default function MenuPage() {
         editItem={editingItem}
         activeBranches={branches}
         branchesLoading={branchesLoading}
-        extraCategories={uniqueCategories}
       />
     </DashboardLayout>
   );

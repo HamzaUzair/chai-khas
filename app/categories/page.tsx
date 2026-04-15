@@ -6,20 +6,27 @@ import { PlusCircle } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import BranchFilter from "@/components/categories/BranchFilter";
 import CategoryGrid from "@/components/categories/CategoryGrid";
-import ItemsPanel from "@/components/categories/ItemsPanel";
+import CategoryTable from "@/components/categories/CategoryTable";
 import CategoryModal from "@/components/categories/CategoryModal";
-import ItemModal from "@/components/categories/ItemModal";
+import ViewToggle, { type ViewMode } from "@/components/menu/ViewToggle";
 import type { Branch } from "@/types/branch";
 import type {
   BranchCategoryData,
   Category,
-  CategoryMenuItem,
+  ApiCategory,
 } from "@/types/category";
-import {
-  getCategoryData,
-  setCategoryData,
-  generateInitialData,
-} from "@/lib/storage";
+
+// Transform API response to frontend format (category-only, no items)
+function transformApiCategory(apiCat: ApiCategory): Category {
+  return {
+    id: apiCat.category_id,
+    name: apiCat.name,
+    itemCount: apiCat.item_count,
+    isActive: apiCat.is_active,
+    branchId: apiCat.branch_id,
+    branchName: apiCat.branch_name,
+  };
+}
 
 export default function CategoriesPage() {
   const router = useRouter();
@@ -29,23 +36,19 @@ export default function CategoriesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
 
-  /* ── Category data (localStorage) ── */
-  const [data, setData] = useState<BranchCategoryData[]>([]);
+  /* ── Category data from API ── */
+  const [categories, setCategories] = useState<ApiCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState("");
 
   /* ── Filter ── */
   const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
-
-  /* ── Selected category ── */
-  const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
-  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
+  const [view, setView] = useState<ViewMode>("grid");
 
   /* ── Modals ── */
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [editingCatBranchId, setEditingCatBranchId] = useState<number | null>(null);
-
-  const [itemModalOpen, setItemModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<CategoryMenuItem | null>(null);
 
   /* ──────────────── Auth guard ──────────────── */
   useEffect(() => {
@@ -75,55 +78,67 @@ export default function CategoriesPage() {
     if (authorized) fetchBranches();
   }, [authorized, fetchBranches]);
 
-  /* ──────────────── Load / init localStorage ──────────────── */
-  useEffect(() => {
-    if (!authorized || branchesLoading || branches.length === 0) return;
-
-    let stored = getCategoryData();
-
-    if (stored.length === 0) {
-      // First time — generate demo data
-      stored = generateInitialData(
-        branches.map((b) => ({
-          branchId: b.branch_id,
-          branchName: b.branch_name,
-        }))
-      );
-      setCategoryData(stored);
-    } else {
-      // Sync: add entries for any new active branches that aren't in storage yet
-      const existingIds = new Set(stored.map((s) => s.branchId));
-      const newBranches = branches.filter(
-        (b) => !existingIds.has(b.branch_id)
-      );
-      if (newBranches.length > 0) {
-        const newEntries = generateInitialData(
-          newBranches.map((b) => ({
-            branchId: b.branch_id,
-            branchName: b.branch_name,
-          }))
-        );
-        stored = [...stored, ...newEntries];
-        setCategoryData(stored);
-      }
+  /* ──────────────── Fetch categories from API ──────────────── */
+  const fetchCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    setCategoriesError("");
+    try {
+      const url =
+        filterBranchId === "all"
+          ? "/api/categories"
+          : `/api/categories?branch_id=${filterBranchId}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch categories");
+      const data: ApiCategory[] = await res.json();
+      setCategories(data);
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+      setCategoriesError("Failed to load categories. Please try again.");
+    } finally {
+      setCategoriesLoading(false);
     }
+  }, [filterBranchId]);
 
-    setData(stored);
-  }, [authorized, branchesLoading, branches]);
+  useEffect(() => {
+    if (authorized && !branchesLoading) {
+      fetchCategories();
+    }
+  }, [authorized, branchesLoading, fetchCategories]);
 
-  /* ──────────────── Persist helper ──────────────── */
-  const persist = useCallback((updated: BranchCategoryData[]) => {
-    setData(updated);
-    setCategoryData(updated);
-  }, []);
+  /* ──────────────── Transform API data to frontend format ──────────────── */
+  const data: BranchCategoryData[] = useMemo(() => {
+    const branchMap = new Map<number, { branchName: string; categories: Category[] }>();
+
+    categories.forEach((apiCat) => {
+      const cat = transformApiCategory(apiCat);
+      if (!branchMap.has(apiCat.branch_id)) {
+        branchMap.set(apiCat.branch_id, {
+          branchName: apiCat.branch_name,
+          categories: [],
+        });
+      }
+      branchMap.get(apiCat.branch_id)!.categories.push(cat);
+    });
+
+    return Array.from(branchMap.entries()).map(([branchId, data]) => ({
+      branchId,
+      branchName: data.branchName,
+      categories: data.categories,
+    }));
+  }, [categories]);
 
   /* ──────────────── Derived groups (for grid) ──────────────── */
   const groups = useMemo(() => {
+    const sortCategories = (items: Category[]) =>
+      [...items].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+      );
+
     if (filterBranchId === "all") {
       return data.map((d) => ({
         branchId: d.branchId,
         branchName: d.branchName,
-        categories: d.categories,
+        categories: sortCategories(d.categories),
       }));
     }
     const found = data.find((d) => d.branchId === filterBranchId);
@@ -132,35 +147,15 @@ export default function CategoriesPage() {
       {
         branchId: found.branchId,
         branchName: found.branchName,
-        categories: found.categories,
+        categories: sortCategories(found.categories),
       },
     ];
   }, [data, filterBranchId]);
 
-  /* ──────────────── Selected category object ──────────────── */
-  const selectedCategory = useMemo(() => {
-    if (!selectedCatId || selectedBranchId === null) return null;
-    const bd = data.find((d) => d.branchId === selectedBranchId);
-    return bd?.categories.find((c) => c.id === selectedCatId) ?? null;
-  }, [data, selectedCatId, selectedBranchId]);
-
-  const selectedBranchName = useMemo(() => {
-    if (selectedBranchId === null) return "";
-    return data.find((d) => d.branchId === selectedBranchId)?.branchName ?? "";
-  }, [data, selectedBranchId]);
-
-  /* ──────────────── Reset selection on filter change ──────────────── */
-  useEffect(() => {
-    // check if selectedCat still exists in the current filter view
-    if (!selectedCatId) return;
-    const exists = groups.some((g) =>
-      g.categories.some((c) => c.id === selectedCatId)
-    );
-    if (!exists) {
-      setSelectedCatId(null);
-      setSelectedBranchId(null);
-    }
-  }, [groups, selectedCatId]);
+  const flatCategories = useMemo(
+    () => groups.flatMap((g) => g.categories),
+    [groups]
+  );
 
   /* ══════════════════════════════════════════════
      CATEGORY CRUD
@@ -180,142 +175,76 @@ export default function CategoriesPage() {
     setCatModalOpen(true);
   };
 
-  const handleCategorySave = (payload: {
+  const handleCategorySave = async (payload: {
     name: string;
-    itemCount: number;
     isActive: boolean;
     branchId: number;
   }) => {
-    const updated = data.map((bd) => {
-      if (bd.branchId !== payload.branchId) return bd;
-
+    try {
       if (editingCat) {
-        // Edit existing
-        return {
-          ...bd,
-          categories: bd.categories.map((c) =>
-            c.id === editingCat.id
-              ? { ...c, name: payload.name, itemCount: payload.itemCount, isActive: payload.isActive }
-              : c
-          ),
-        };
+        const res = await fetch(`/api/categories/${editingCat.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: payload.name,
+            description: null,
+            is_active: payload.isActive,
+          }),
+        });
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Failed to update category");
+        }
       } else {
-        // Add new
-        const newCat: Category = {
-          id:
-            globalThis.crypto?.randomUUID?.() ??
-            `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-          name: payload.name,
-          itemCount: payload.itemCount,
-          isActive: payload.isActive,
-          items: [],
-        };
-        return {
-          ...bd,
-          categories: [...bd.categories, newCat],
-        };
+        const res = await fetch("/api/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: payload.name,
+            description: null,
+            branch_id: payload.branchId,
+            is_active: payload.isActive,
+          }),
+        });
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Failed to create category");
+        }
       }
-    });
-
-    persist(updated);
-    setCatModalOpen(false);
-    setEditingCat(null);
+      await fetchCategories();
+      setCatModalOpen(false);
+      setEditingCat(null);
+    } catch (error) {
+      console.error("Error saving category:", error);
+      alert(error instanceof Error ? error.message : "Failed to save category");
+    }
   };
 
-  /* ══════════════════════════════════════════════
-     ITEM CRUD
-  ══════════════════════════════════════════════ */
+  const handleDeleteCategory = async (categoryId: number, branchId: number, categoryName: string) => {
+    const category = data
+      .find((d) => d.branchId === branchId)
+      ?.categories.find((c) => c.id === categoryId);
 
-  const openAddItem = () => {
-    setEditingItem(null);
-    setItemModalOpen(true);
-  };
+    const itemCount = category?.itemCount || 0;
+    const confirmMessage = itemCount > 0
+      ? `Delete "${categoryName}"? This will permanently delete the category and all ${itemCount} menu item(s) in it. This action cannot be undone.`
+      : `Delete "${categoryName}"? This action cannot be undone.`;
 
-  const openEditItem = (item: CategoryMenuItem) => {
-    setEditingItem(item);
-    setItemModalOpen(true);
-  };
+    if (!window.confirm(confirmMessage)) return;
 
-  const handleItemSave = (payload: {
-    name: string;
-    price: number;
-    isActive: boolean;
-  }) => {
-    if (!selectedCatId || selectedBranchId === null) return;
-
-    const updated = data.map((bd) => {
-      if (bd.branchId !== selectedBranchId) return bd;
-      return {
-        ...bd,
-        categories: bd.categories.map((cat) => {
-          if (cat.id !== selectedCatId) return cat;
-          let newItems: CategoryMenuItem[];
-          if (editingItem) {
-            newItems = cat.items.map((i) =>
-              i.id === editingItem.id
-                ? { ...i, name: payload.name, price: payload.price, isActive: payload.isActive }
-                : i
-            );
-          } else {
-            const newItem: CategoryMenuItem = {
-              id:
-                globalThis.crypto?.randomUUID?.() ??
-                `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-              name: payload.name,
-              price: payload.price,
-              isActive: payload.isActive,
-            };
-            newItems = [...cat.items, newItem];
-          }
-          return { ...cat, items: newItems, itemCount: newItems.length };
-        }),
-      };
-    });
-
-    persist(updated);
-    setItemModalOpen(false);
-    setEditingItem(null);
-  };
-
-  const handleDeleteItem = (itemId: string) => {
-    if (!selectedCatId || selectedBranchId === null) return;
-    if (!window.confirm("Delete this item?")) return;
-
-    const updated = data.map((bd) => {
-      if (bd.branchId !== selectedBranchId) return bd;
-      return {
-        ...bd,
-        categories: bd.categories.map((cat) => {
-          if (cat.id !== selectedCatId) return cat;
-          const newItems = cat.items.filter((i) => i.id !== itemId);
-          return { ...cat, items: newItems, itemCount: newItems.length };
-        }),
-      };
-    });
-
-    persist(updated);
-  };
-
-  const handleToggleItem = (itemId: string) => {
-    if (!selectedCatId || selectedBranchId === null) return;
-
-    const updated = data.map((bd) => {
-      if (bd.branchId !== selectedBranchId) return bd;
-      return {
-        ...bd,
-        categories: bd.categories.map((cat) => {
-          if (cat.id !== selectedCatId) return cat;
-          return {
-            ...cat,
-            items: cat.items.map((i) =>
-              i.id === itemId ? { ...i, isActive: !i.isActive } : i
-            ),
-          };
-        }),
-      };
-    });
-
-    persist(updated);
+    try {
+      const res = await fetch(`/api/categories/${categoryId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete category");
+      }
+      await fetchCategories();
+    } catch (error) {
+      console.error("Error deleting category:", error);
+      alert(error instanceof Error ? error.message : "Failed to delete category");
+    }
   };
 
   /* ──────────────── Loading states ──────────────── */
@@ -337,7 +266,7 @@ export default function CategoriesPage() {
           <div>
             <h2 className="text-2xl font-bold text-gray-800">Categories</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Manage categories and items across branches
+              Manage categories across branches. Menu items are managed in the Menu section.
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -358,6 +287,19 @@ export default function CategoriesPage() {
         </div>
       </div>
 
+      {/* ── Error banner ── */}
+      {categoriesError && (
+        <div className="mb-6 flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
+          {categoriesError}
+          <button
+            onClick={fetchCategories}
+            className="ml-auto text-xs font-medium underline hover:no-underline cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* ── Filter ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
         <BranchFilter
@@ -369,43 +311,38 @@ export default function CategoriesPage() {
       </div>
 
       {/* ── Loading state ── */}
-      {branchesLoading ? (
+      {branchesLoading || categoriesLoading ? (
         <div className="flex items-center justify-center py-20">
           <div className="animate-spin h-8 w-8 border-4 border-[#ff5a1f] border-t-transparent rounded-full" />
         </div>
       ) : (
-        /* ── Two-panel layout ── */
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* LEFT — Category grid */}
-          <div className="lg:col-span-3 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-            <h3 className="text-base font-bold text-gray-800 mb-1">
-              Select Category
-            </h3>
-            <p className="text-xs text-gray-400 mb-4">
-              Click a card to view &amp; manage its items
-            </p>
-            <CategoryGrid
-              groups={groups}
-              selectedCategoryId={selectedCatId}
-              onSelectCategory={(catId, branchId) => {
-                setSelectedCatId(catId);
-                setSelectedBranchId(branchId);
-              }}
-              onEditCategory={openEditCategory}
-            />
+        /* ── Category grid (single column, no item panel) ── */
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-base font-bold text-gray-800 mb-1">
+                Categories
+              </h3>
+              <p className="text-xs text-gray-400">
+                Add, edit, or delete categories. Item count is shown for reference.
+              </p>
+            </div>
+            <ViewToggle view={view} onChange={setView} />
           </div>
 
-          {/* RIGHT — Items panel */}
-          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm p-5 min-h-[400px]">
-            <ItemsPanel
-              category={selectedCategory}
-              branchName={selectedBranchName}
-              onAddItem={openAddItem}
-              onEditItem={openEditItem}
-              onDeleteItem={handleDeleteItem}
-              onToggleItem={handleToggleItem}
+          {view === "grid" ? (
+            <CategoryGrid
+              groups={groups}
+              onEditCategory={openEditCategory}
+              onDeleteCategory={handleDeleteCategory}
             />
-          </div>
+          ) : (
+            <CategoryTable
+              items={flatCategories}
+              onEditCategory={openEditCategory}
+              onDeleteCategory={handleDeleteCategory}
+            />
+          )}
         </div>
       )}
 
@@ -421,17 +358,6 @@ export default function CategoriesPage() {
         editBranchId={editingCatBranchId}
         activeBranches={branches}
         showBranchSelect={filterBranchId === "all"}
-      />
-
-      {/* ── Item Modal ── */}
-      <ItemModal
-        isOpen={itemModalOpen}
-        onClose={() => {
-          setItemModalOpen(false);
-          setEditingItem(null);
-        }}
-        onSave={handleItemSave}
-        editItem={editingItem}
       />
     </DashboardLayout>
   );

@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f3f4f6;
+  --foreground: #111827;
 }
 
 @theme inline {
@@ -12,17 +12,101 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+html.theme-dark {
+  --background: #020617;
+  --foreground: #e5e7eb;
+}
+
+html.theme-dark body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Global dark mode overrides for common surfaces/text/borders */
+
+html.theme-dark .bg-white {
+  background-color: #020617 !important;
+}
+
+html.theme-dark .bg-gray-50,
+html.theme-dark .bg-gray-50\/40,
+html.theme-dark .bg-gray-50\/60,
+html.theme-dark .bg-gray-50\/80,
+html.theme-dark .bg-gray-50\/90 {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+}
+
+html.theme-dark .bg-gray-100 {
+  background-color: #0f172a !important;
+}
+
+html.theme-dark .border-gray-100,
+html.theme-dark .border-gray-200 {
+  border-color: #1f2937 !important;
+}
+
+html.theme-dark .text-gray-900,
+html.theme-dark .text-gray-800,
+html.theme-dark .text-gray-700 {
+  color: #e5e7eb !important;
+}
+
+html.theme-dark .text-gray-600,
+html.theme-dark .text-gray-500 {
+  color: #d1d5db !important;
+}
+
+html.theme-dark .text-gray-400,
+html.theme-dark .text-gray-300 {
+  color: #9ca3af !important;
+}
+
+html.theme-dark header {
+  background-color: #020617;
+  border-color: #1f2937;
+}
+
+html.theme-dark aside {
+  background-color: #020617;
+  border-color: #1f2937;
+}
+
+html.theme-dark input,
+html.theme-dark select,
+html.theme-dark textarea {
+  background-color: #020617;
+  color: #e5e7eb;
+  border-color: #1f2937;
+}
+
+html.theme-dark input::placeholder,
+html.theme-dark textarea::placeholder {
+  color: #6b7280;
+}
+
+html.theme-dark .hover\:bg-gray-100:hover,
+html.theme-dark .hover\:bg-gray-50:hover {
+  background-color: #111827 !important;
+}
+
+/* Deals card tuning for dark mode: slightly lighter than page bg */
+html.theme-dark .deal-card-surface {
+  background-color: #0b1220 !important;
+  border-color: #253246 !important;
+}
+
+html.theme-dark .deal-item-row {
+  background-color: #1a2436 !important;
+  border-color: #2b3a52 !important;
+}
+
+html.theme-dark .deal-item-name {
+  color: #f8fafc !important;
 }
 
 /* Toast slide-in animation */

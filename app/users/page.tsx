@@ -155,8 +155,13 @@ export default function UsersPage() {
   };
 
   const handleSubmit = (data: UserFormData) => {
+    const validRoles = ["SUPER_ADMIN", "BRANCH_ADMIN"] as const;
+    if (!data.role || !validRoles.includes(data.role as typeof validRoles[number])) {
+      pushToast("Invalid role. Allowed: Super Admin, Branch Admin.", "error");
+      return;
+    }
     const branch = branches.find((b) => b.branch_id === Number(data.branchId));
-    const isSA = data.role === "Super Admin";
+    const isSA = data.role === "SUPER_ADMIN";
     const now = Date.now();
 
     if (editingUser) {
