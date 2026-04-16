@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
 
 /* ── Helper: find or create category by name for branch ── */
 async function findOrCreateCategory(
@@ -31,6 +32,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
     const { id } = await params;
     const dishId = parseInt(id, 10);
 
@@ -74,6 +76,7 @@ export async function PUT(
         { status: 404 }
       );
     }
+    assertBranchAccess(auth, existing.branch_id);
 
     const updateData: {
       name: string;
@@ -128,6 +131,9 @@ export async function PUT(
 
     return NextResponse.json(serialized);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("PUT /api/dishes/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to update dish" },
@@ -138,10 +144,11 @@ export async function PUT(
 
 /* ── DELETE /api/dishes/[id] ── */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
     const { id } = await params;
     const dishId = parseInt(id, 10);
 
@@ -162,6 +169,7 @@ export async function DELETE(
         { status: 404 }
       );
     }
+    assertBranchAccess(auth, dish.branch_id);
 
     await prisma.menuItem.delete({
       where: { dish_id: dishId },
@@ -169,6 +177,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("DELETE /api/dishes/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to delete dish" },

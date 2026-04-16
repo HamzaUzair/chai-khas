@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
 
 /* ── GET /api/categories ── */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const branchIdParam = searchParams.get("branch_id");
 
     const where: { branch_id?: number } = {};
-    if (branchIdParam && branchIdParam !== "all") {
+    const requestedBranchId =
+      branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
+    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
+
+    if (scopedBranchId) {
+      where.branch_id = scopedBranchId;
+    }
+    else if (branchIdParam && branchIdParam !== "all") {
       const branchId = parseInt(branchIdParam, 10);
       if (!isNaN(branchId)) {
         where.branch_id = branchId;
@@ -53,6 +62,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(serialized);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("GET /api/categories error:", err);
     return NextResponse.json(
       { error: "Failed to fetch categories" },
@@ -64,6 +76,7 @@ export async function GET(request: NextRequest) {
 /* ── POST /api/categories ── */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
     const body = await request.json();
     const { name, description, branch_id, is_active } = body;
 
@@ -74,7 +87,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!branch_id) {
+    const scopedBranchId = getScopedBranchId(auth, Number(branch_id));
+    if (!scopedBranchId) {
       return NextResponse.json(
         { error: "Branch ID is required" },
         { status: 400 }
@@ -83,7 +97,7 @@ export async function POST(request: NextRequest) {
 
     // Verify branch exists
     const branch = await prisma.branch.findUnique({
-      where: { branch_id: branch_id },
+      where: { branch_id: scopedBranchId },
     });
     if (!branch) {
       return NextResponse.json(
@@ -96,7 +110,7 @@ export async function POST(request: NextRequest) {
       data: {
         name: name.trim(),
         description: description?.trim() || null,
-        branch_id: branch_id,
+        branch_id: scopedBranchId,
         kid: is_active === false ? 1 : 0, // 0 = active, 1 = inactive
         terminal: 1,
       },
@@ -132,6 +146,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(serialized, { status: 201 });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("POST /api/categories error:", err);
     return NextResponse.json(
       { error: "Failed to create category" },

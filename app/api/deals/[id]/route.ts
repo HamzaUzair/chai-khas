@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
 
 type IncomingDealItem = {
   id?: string;
@@ -63,6 +64,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
     const { id } = await params;
     const dealId = Number(id);
     if (Number.isNaN(dealId)) {
@@ -99,6 +101,7 @@ export async function PUT(
     if (!existing) {
       return NextResponse.json({ error: "Deal not found" }, { status: 404 });
     }
+    assertBranchAccess(auth, existing.branch_id);
 
     const normalizedItems = (items ?? [])
       .map((item) => ({
@@ -166,6 +169,9 @@ export async function PUT(
       })),
     });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("PUT /api/deals/[id] error:", err);
     return NextResponse.json({ error: "Failed to update deal" }, { status: 500 });
   }
@@ -173,15 +179,25 @@ export async function PUT(
 
 /* ── DELETE /api/deals/[id] ── */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
     const { id } = await params;
     const dealId = Number(id);
     if (Number.isNaN(dealId)) {
       return NextResponse.json({ error: "Invalid deal ID" }, { status: 400 });
     }
+
+    const existing = await prisma.deal.findUnique({
+      where: { id: dealId },
+      select: { branch_id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Deal not found" }, { status: 404 });
+    }
+    assertBranchAccess(auth, existing.branch_id);
 
     await prisma.$transaction(async (tx) => {
       await tx.dealItem.deleteMany({ where: { deal_id: dealId } });
@@ -190,6 +206,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("DELETE /api/deals/[id] error:", err);
     return NextResponse.json({ error: "Failed to delete deal" }, { status: 500 });
   }

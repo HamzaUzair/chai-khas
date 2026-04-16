@@ -4,12 +4,13 @@ import React from "react";
 import {
   Pencil,
   Trash2,
+  ListTree,
   DoorOpen,
   Loader2,
   Building2,
   Calendar,
-  Monitor,
   Users,
+  Armchair,
 } from "lucide-react";
 import type { Hall } from "@/types/hall";
 
@@ -32,6 +33,7 @@ interface HallsTableProps {
   loading: boolean;
   onEdit: (hall: Hall) => void;
   onDelete: (hall: Hall) => void;
+  onManageTables?: (hall: Hall) => void;
 }
 
 const HallsTable: React.FC<HallsTableProps> = ({
@@ -39,6 +41,7 @@ const HallsTable: React.FC<HallsTableProps> = ({
   loading,
   onEdit,
   onDelete,
+  onManageTables,
 }) => {
   if (loading) {
     return (
@@ -59,7 +62,7 @@ const HallsTable: React.FC<HallsTableProps> = ({
         <table className="w-full text-sm min-w-[780px]">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50/90 border-b border-gray-100">
-              {["ID", "Hall Name", "Capacity", "Branch", "Terminal", "Created At", "Actions"].map(
+              {["ID", "Hall Name", "Tables", "Total Capacity", "Branch", "Created At", "Actions"].map(
                 (col) => (
                   <th
                     key={col}
@@ -98,7 +101,15 @@ const HallsTable: React.FC<HallsTableProps> = ({
                 <td className="px-5 py-3.5 whitespace-nowrap">
                   <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
                     <Users size={13} className="text-gray-400" />
-                    {hall.capacity}
+                    {hall.tableCount}
+                  </span>
+                </td>
+
+                {/* Total Capacity */}
+                <td className="px-5 py-3.5 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                    <Armchair size={13} className="text-gray-400" />
+                    {hall.totalCapacity}
                   </span>
                 </td>
 
@@ -107,14 +118,6 @@ const HallsTable: React.FC<HallsTableProps> = ({
                   <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
                     <Building2 size={13} className="text-gray-400" />
                     {hall.branchName}
-                  </span>
-                </td>
-
-                {/* Terminal */}
-                <td className="px-5 py-3.5 whitespace-nowrap">
-                  <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
-                    <Monitor size={13} className="text-gray-400" />
-                    {hall.terminal}
                   </span>
                 </td>
 
@@ -136,6 +139,15 @@ const HallsTable: React.FC<HallsTableProps> = ({
                       <Pencil size={13} />
                       Edit
                     </button>
+                    {onManageTables && (
+                      <button
+                        onClick={() => onManageTables(hall)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-xs font-semibold hover:bg-blue-50 transition-colors cursor-pointer"
+                      >
+                        <ListTree size={13} />
+                        Manage Tables
+                      </button>
+                    )}
                     <button
                       onClick={() => onDelete(hall)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-colors cursor-pointer"

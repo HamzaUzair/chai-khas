@@ -20,6 +20,7 @@ import DeleteExpenseModal from "@/components/expenses/DeleteExpenseModal";
 import type { Expense, ExpenseFormData, ExpenseBranch } from "@/types/expense";
 import type { Branch } from "@/types/branch";
 import { generateMockExpenses, nextExpenseId } from "@/lib/expensesData";
+import { apiFetch } from "@/lib/auth-client";
 
 /* ═══════════ localStorage persistence ═══════════ */
 const LS_KEY = "pos_expenses";
@@ -93,7 +94,7 @@ export default function ExpensesPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const all: Branch[] = await res.json();
       const active = all

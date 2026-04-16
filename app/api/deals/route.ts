@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertBranchAccess, AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
 
 type IncomingDealItem = {
   id?: string;
@@ -64,6 +65,7 @@ async function getOrCreateDishFromMenu(
 /* ── GET /api/deals ── */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const branchIdParam = searchParams.get("branchId");
     const statusParam = searchParams.get("status");
@@ -75,7 +77,12 @@ export async function GET(request: NextRequest) {
       OR?: Array<{ name?: { contains: string; mode: "insensitive" } }>;
     } = {};
 
-    if (branchIdParam && branchIdParam !== "all") {
+    const requestedBranchId =
+      branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
+    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
+    if (scopedBranchId) {
+      where.branch_id = scopedBranchId;
+    } else if (branchIdParam && branchIdParam !== "all") {
       const branchId = Number(branchIdParam);
       if (!Number.isNaN(branchId)) where.branch_id = branchId;
     }
@@ -121,6 +128,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(serialized);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("GET /api/deals error:", err);
     return NextResponse.json({ error: "Failed to fetch deals" }, { status: 500 });
   }
@@ -129,6 +139,7 @@ export async function GET(request: NextRequest) {
 /* ── POST /api/deals ── */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
     const body = await request.json();
     const { name, type, description, branchId, price, status, items } = body as {
       name?: string;
@@ -174,6 +185,7 @@ export async function POST(request: NextRequest) {
     if (!branch) {
       return NextResponse.json({ error: "Branch not found" }, { status: 404 });
     }
+    assertBranchAccess(auth, branch.branch_id);
 
     const normalizedItems = items
       .map((item) => ({
@@ -248,6 +260,9 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("POST /api/deals error:", err);
     return NextResponse.json({ error: "Failed to create deal" }, { status: 500 });
   }

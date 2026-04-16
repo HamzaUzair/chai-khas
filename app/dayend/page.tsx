@@ -38,6 +38,7 @@ import {
   MOCK_HOURLY_SALES,
   MOCK_DAY_END_HISTORY,
 } from "@/lib/dayendData";
+import { apiFetch } from "@/lib/auth-client";
 
 /* ── Toast ── */
 interface Toast {
@@ -97,7 +98,7 @@ export default function DayEndPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const data: Branch[] = await res.json();
       setBranches(data.filter((b) => b.status === "Active"));

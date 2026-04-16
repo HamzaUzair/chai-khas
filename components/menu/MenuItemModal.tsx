@@ -5,6 +5,7 @@ import { X, Loader2, Plus, Trash2 } from "lucide-react";
 import type { Branch } from "@/types/branch";
 import type { MenuItem, MenuItemFormData } from "@/types/menu";
 import type { ApiCategory } from "@/types/category";
+import { apiFetch } from "@/lib/auth-client";
 
 const emptyForm: MenuItemFormData = {
   name: "",
@@ -81,7 +82,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
     const run = async () => {
       setCategoriesLoading(true);
       try {
-        const res = await fetch(`/api/categories?branch_id=${form.branchId}`);
+        const res = await apiFetch(`/api/categories?branch_id=${form.branchId}`);
         if (!res.ok) throw new Error();
         const data: ApiCategory[] = await res.json();
         const names = Array.from(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { assertBranchAccess, AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
 
 type IncomingVariation = { name?: string; price?: number | string };
 
@@ -42,6 +43,7 @@ function validateVariationRows(rows: Array<{ name: string; price: number }>) {
 /* ── GET /api/menu ── */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const branchIdParam = searchParams.get("branchId");
     const statusParam = searchParams.get("status"); // "active" | "inactive" | omit for all
@@ -50,7 +52,12 @@ export async function GET(request: NextRequest) {
 
     const where: Prisma.MenuWhereInput = {};
 
-    if (branchIdParam && branchIdParam !== "all") {
+    const requestedBranchId =
+      branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
+    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
+    if (scopedBranchId) {
+      where.branchId = scopedBranchId;
+    } else if (branchIdParam && branchIdParam !== "all") {
       const branchId = parseInt(branchIdParam, 10);
       if (!isNaN(branchId)) where.branchId = branchId;
     }
@@ -107,6 +114,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(serialized);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("GET /api/menu error:", err);
     return NextResponse.json(
       { error: "Failed to fetch menu items" },
@@ -118,6 +128,7 @@ export async function GET(request: NextRequest) {
 /* ── POST /api/menu ── */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
     const body = await request.json();
     const {
       itemName,
@@ -199,6 +210,7 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+    assertBranchAccess(auth, branch.branch_id);
 
     const categoryExists = await prisma.category.findFirst({
       where: {
@@ -277,6 +289,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(serialized, { status: 201 });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("POST /api/menu error:", err);
     return NextResponse.json(
       { error: "Failed to create menu item" },

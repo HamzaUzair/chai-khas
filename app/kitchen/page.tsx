@@ -25,6 +25,7 @@ import {
   setStaff,
   generateDemoData,
 } from "@/lib/kitchenStorage";
+import { apiFetch } from "@/lib/auth-client";
 
 export default function KitchenPage() {
   const router = useRouter();
@@ -69,7 +70,7 @@ export default function KitchenPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const data: Branch[] = await res.json();
       setBranches(data.filter((b) => b.status === "Active"));

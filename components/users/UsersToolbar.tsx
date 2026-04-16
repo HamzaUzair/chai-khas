@@ -3,7 +3,7 @@
 import React from "react";
 import { Search, Shield, Building2, CircleDot } from "lucide-react";
 import type { UserRole } from "@/types/user";
-import { USER_ROLES, USER_ROLE_LABELS } from "@/types/user";
+import { USER_ROLE_LABELS } from "@/types/user";
 
 interface BranchOption {
   branch_id: number;
@@ -20,6 +20,8 @@ interface UsersToolbarProps {
   onBranchChange: (v: number | "all") => void;
   filterStatus: "Active" | "Inactive" | "all";
   onStatusChange: (v: "Active" | "Inactive" | "all") => void;
+  roleOptions?: UserRole[];
+  branchLocked?: boolean;
 }
 
 const UsersToolbar: React.FC<UsersToolbarProps> = ({
@@ -32,6 +34,8 @@ const UsersToolbar: React.FC<UsersToolbarProps> = ({
   onBranchChange,
   filterStatus,
   onStatusChange,
+  roleOptions = [],
+  branchLocked = false,
 }) => {
   const selectBase =
     "border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm text-gray-700 bg-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all";
@@ -72,7 +76,7 @@ const UsersToolbar: React.FC<UsersToolbarProps> = ({
             onChange={(e) => onRoleChange(e.target.value as UserRole | "all")}
           >
             <option value="all">All Roles</option>
-            {USER_ROLES.map((r) => (
+            {roleOptions.map((r) => (
               <option key={r} value={r}>
                 {USER_ROLE_LABELS[r]}
               </option>
@@ -81,7 +85,7 @@ const UsersToolbar: React.FC<UsersToolbarProps> = ({
         </div>
 
         {/* Branch */}
-        <div className="min-w-[160px]">
+        <div className={`min-w-[160px] ${branchLocked ? "opacity-80" : ""}`}>
           <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1.5">
             <Building2 size={13} />
             Branch
@@ -92,8 +96,9 @@ const UsersToolbar: React.FC<UsersToolbarProps> = ({
             onChange={(e) =>
               onBranchChange(e.target.value === "all" ? "all" : Number(e.target.value))
             }
+            disabled={branchLocked}
           >
-            <option value="all">All Branches</option>
+            {!branchLocked && <option value="all">All Branches</option>}
             {branches.map((b) => (
               <option key={b.branch_id} value={b.branch_id}>
                 {b.branch_name}

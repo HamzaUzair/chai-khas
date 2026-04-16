@@ -8,7 +8,6 @@ import {
   UserCog,
   CheckCircle2,
   AlertTriangle,
-  Info,
   X,
 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
@@ -18,41 +17,38 @@ import UserCardList from "@/components/users/UserCardList";
 import UserModal from "@/components/users/UserModal";
 import type { Branch } from "@/types/branch";
 import type { AppUser, UserFormData, UserRole } from "@/types/user";
-import { USER_ROLES } from "@/types/user";
+import { STAFF_USER_ROLES } from "@/types/user";
 import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
-/* ── toast ── */
 interface Toast {
   id: number;
   message: string;
   type: "success" | "error";
 }
 
-export default function UsersPage() {
+type BranchOption = {
+  branch_id: number;
+  branch_name: string;
+  branch_code: string;
+  status: string;
+};
+
+export default function RolesPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
 
-  /* ── Branches ── */
-  const [branches, setBranches] = useState<
-    { branch_id: number; branch_name: string; branch_code: string; status: string }[]
-  >([]);
+  const [branches, setBranches] = useState<BranchOption[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
-  const [branchCount, setBranchCount] = useState(0);
-
-  /* ── Users ── */
   const [users, setUsersState] = useState<AppUser[]>([]);
 
-  /* ── Filters ── */
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState<UserRole | "all">("all");
-  const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
   const [filterStatus, setFilterStatus] = useState<"Active" | "Inactive" | "all">("all");
 
-  /* ── Modal ── */
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
 
-  /* ── Toast ── */
   const [toasts, setToasts] = useState<Toast[]>([]);
   const pushToast = useCallback((message: string, type: "success" | "error" = "success") => {
     const id = Date.now();
@@ -60,20 +56,21 @@ export default function UsersPage() {
     setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3000);
   }, []);
 
-  /* ── Persist ── */
-  /* ══════════ Auth ══════════ */
   useEffect(() => {
     const session = getAuthSession();
     if (!session) {
       router.replace("/login");
-    } else if (session.role !== "SUPER_ADMIN") {
-      router.replace("/dashboard");
-    } else {
-      setAuthorized(true);
+      return;
     }
+    if (session.role !== "BRANCH_ADMIN" || !session.branchId) {
+      router.replace("/dashboard");
+      return;
+    }
+
+    setSessionBranchId(session.branchId);
+    setAuthorized(true);
   }, [router]);
 
-  /* ══════════ Fetch branches ══════════ */
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
@@ -88,10 +85,8 @@ export default function UsersPage() {
         status: b.status,
       }));
       setBranches(mapped);
-      setBranchCount(mapped.length);
     } catch {
       setBranches([]);
-      setBranchCount(0);
     } finally {
       setBranchesLoading(false);
     }
@@ -117,32 +112,32 @@ export default function UsersPage() {
     loadUsers();
   }, [authorized, branchesLoading, loadUsers]);
 
-  /* ══════════ Filtered ══════════ */
   const filtered = useMemo(() => {
     let list = users;
     if (filterRole !== "all") list = list.filter((u) => u.role === filterRole);
-    if (filterBranchId !== "all") list = list.filter((u) => u.branchId === filterBranchId);
     if (filterStatus !== "all") list = list.filter((u) => u.status === filterStatus);
     if (search.trim()) {
       const q = search.toLowerCase().trim();
       list = list.filter(
         (u) =>
           u.username.toLowerCase().includes(q) ||
-          u.fullName.toLowerCase().includes(q)
+          u.fullName.toLowerCase().includes(q) ||
+          u.branchName.toLowerCase().includes(q)
       );
     }
     return list.sort((a, b) => b.createdAt - a.createdAt);
-  }, [users, filterRole, filterBranchId, filterStatus, search]);
+  }, [users, filterRole, filterStatus, search]);
 
-  /* ══════════ CRUD ══════════ */
   const openCreate = () => {
     setEditingUser(null);
     setModalOpen(true);
   };
+
   const openEdit = (user: AppUser) => {
     setEditingUser(user);
     setModalOpen(true);
   };
+
   const closeModal = () => {
     setModalOpen(false);
     setEditingUser(null);
@@ -150,61 +145,60 @@ export default function UsersPage() {
 
   const handleSubmit = (data: UserFormData) => {
     (async () => {
-    if (!data.role || !USER_ROLES.includes(data.role)) {
-      pushToast("Invalid role selected.", "error");
-      return;
-    }
-    try {
-      const payload = {
-        username: data.username.trim(),
-        fullName: data.fullName.trim(),
-        password: data.password,
-        role: data.role as UserRole,
-        branchId: data.role === "SUPER_ADMIN" ? null : Number(data.branchId),
-        terminal: Math.max(1, Number(data.terminal) || 1),
-        status: data.status,
-      };
-
-      const url = editingUser ? `/api/users/${editingUser.userId}` : "/api/users";
-      const method = editingUser ? "PUT" : "POST";
-      const res = await apiFetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to save user");
+      if (!data.role || !STAFF_USER_ROLES.includes(data.role)) {
+        pushToast("Invalid staff role selected.", "error");
+        return;
       }
-      await loadUsers();
-      pushToast(
-        `User "${data.fullName.trim()}" ${editingUser ? "updated" : "created"} successfully.`
-      );
-      closeModal();
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Failed to save user", "error");
-    }
+      try {
+        const payload = {
+          username: data.username.trim(),
+          fullName: data.fullName.trim(),
+          password: data.password,
+          role: data.role,
+          branchId: sessionBranchId,
+          terminal: Math.max(1, Number(data.terminal) || 1),
+          status: data.status,
+        };
+
+        const url = editingUser ? `/api/users/${editingUser.userId}` : "/api/users";
+        const method = editingUser ? "PUT" : "POST";
+        const res = await apiFetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Failed to save staff user");
+        }
+        await loadUsers();
+        pushToast(
+          `Staff "${data.fullName.trim()}" ${editingUser ? "updated" : "created"} successfully.`
+        );
+        closeModal();
+      } catch (e) {
+        pushToast(e instanceof Error ? e.message : "Failed to save staff user", "error");
+      }
     })();
   };
 
   const handleDelete = (user: AppUser) => {
     (async () => {
-    if (!window.confirm(`Delete user "${user.fullName}"? This action cannot be undone.`)) return;
-    try {
-      const res = await apiFetch(`/api/users/${user.userId}`, { method: "DELETE" });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to delete user");
+      if (!window.confirm(`Delete staff "${user.fullName}"? This action cannot be undone.`)) return;
+      try {
+        const res = await apiFetch(`/api/users/${user.userId}`, { method: "DELETE" });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Failed to delete staff user");
+        }
+        await loadUsers();
+        pushToast(`Staff "${user.fullName}" deleted.`, "error");
+      } catch (e) {
+        pushToast(e instanceof Error ? e.message : "Failed to delete staff user", "error");
       }
-      await loadUsers();
-      pushToast(`User "${user.fullName}" deleted.`, "error");
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Failed to delete user", "error");
-    }
     })();
   };
 
-  /* ══════════ Auth loading ══════════ */
   if (!authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -214,8 +208,7 @@ export default function UsersPage() {
   }
 
   return (
-    <DashboardLayout title="Users">
-      {/* ── Toast ── */}
+    <DashboardLayout title="Roles">
       <div className="fixed top-5 right-5 z-[200] space-y-2 pointer-events-none">
         {toasts.map((t) => (
           <div
@@ -238,71 +231,51 @@ export default function UsersPage() {
         ))}
       </div>
 
-      {/* ── Header ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800">Account Management</h2>
+            <h2 className="text-2xl font-bold text-gray-800">Staff Management</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Super Admin can add users with roles and assign them to branches
+              Create and manage Order Takers, Cashiers, and Accountants for your branch
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => {
                 fetchBranches();
-                pushToast("Branches refreshed");
+                loadUsers();
+                pushToast("Staff list refreshed");
               }}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors cursor-pointer"
             >
               <RefreshCw size={15} />
-              Refresh Branches
+              Refresh
             </button>
             <button
               onClick={openCreate}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm"
             >
               <PlusCircle size={16} />
-              + Add User
+              + Add Staff
             </button>
           </div>
         </div>
       </div>
 
-      {/* ── Branch status banner ── */}
-      <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 mb-6 text-sm text-blue-700">
-        <span className="flex items-center gap-2">
-          <Info size={16} className="shrink-0" />
-          Branches Status: ✅{" "}
-          <span className="font-semibold">{branchCount} branches loaded</span>
-        </span>
-        <button
-          onClick={() => {
-            fetchBranches();
-            pushToast("Branches refreshed");
-          }}
-          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
-        >
-          <RefreshCw size={12} />
-          Refresh
-        </button>
-      </div>
-
-      {/* ── Toolbar ── */}
       <UsersToolbar
         branches={branches}
         search={search}
         onSearchChange={setSearch}
         filterRole={filterRole}
         onRoleChange={setFilterRole}
-        filterBranchId={filterBranchId}
-        onBranchChange={setFilterBranchId}
+        filterBranchId={sessionBranchId ?? "all"}
+        onBranchChange={() => {}}
         filterStatus={filterStatus}
         onStatusChange={setFilterStatus}
-        roleOptions={USER_ROLES}
+        roleOptions={STAFF_USER_ROLES}
+        branchLocked
       />
 
-      {/* ── Content ── */}
       {!branchesLoading && filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
           <div className="px-6 py-16 flex flex-col items-center gap-3 text-center">
@@ -311,8 +284,8 @@ export default function UsersPage() {
             </div>
             <p className="text-sm text-gray-500 max-w-xs">
               {users.length === 0
-                ? "No users yet. Click '+ Add User' to get started."
-                : "No users match your current filters."}
+                ? "No staff users yet. Click '+ Add Staff' to get started."
+                : "No staff users match your current filters."}
             </p>
             {users.length === 0 && (
               <button
@@ -320,7 +293,7 @@ export default function UsersPage() {
                 className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm"
               >
                 <PlusCircle size={16} />
-                Add your first user
+                Add your first staff user
               </button>
             )}
           </div>
@@ -346,15 +319,18 @@ export default function UsersPage() {
         </>
       )}
 
-      {/* ── Modal ── */}
       <UserModal
         isOpen={modalOpen}
         onClose={closeModal}
         onSubmit={handleSubmit}
         editUser={editingUser}
         branches={branches}
-        roleOptions={USER_ROLES}
+        roleOptions={STAFF_USER_ROLES}
+        branchLocked
+        fixedBranchId={sessionBranchId}
+        title={editingUser ? "Edit Staff User" : "Add New Staff User"}
       />
     </DashboardLayout>
   );
 }
+

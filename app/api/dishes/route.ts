@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertBranchAccess, AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
 
 /* ── GET /api/dishes ── */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const categoryIdParam = searchParams.get("category_id");
     const categoryNameParam = searchParams.get("category_name")?.trim();
@@ -28,7 +30,12 @@ export async function GET(request: NextRequest) {
     } else if (categoryNameParam) {
       where.category = { name: categoryNameParam };
     }
-    if (branchIdParam && branchIdParam !== "all") {
+    const requestedBranchId =
+      branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
+    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
+    if (scopedBranchId) {
+      where.branch_id = scopedBranchId;
+    } else if (branchIdParam && branchIdParam !== "all") {
       const branchId = parseInt(branchIdParam, 10);
       if (!isNaN(branchId)) where.branch_id = branchId;
     }
@@ -71,6 +78,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(serialized);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("GET /api/dishes error:", err);
     return NextResponse.json(
       { error: "Failed to fetch dishes" },
@@ -106,6 +116,7 @@ async function findOrCreateCategory(
 /* ── POST /api/dishes ── */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
     const body = await request.json();
     const { name, description, price, category_id, category_name, branch_id, is_available } = body;
 
@@ -174,6 +185,7 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+    assertBranchAccess(auth, branch.branch_id);
 
     const dish = await prisma.menuItem.create({
       data: {
@@ -214,6 +226,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(serialized, { status: 201 });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("POST /api/dishes error:", err);
     return NextResponse.json(
       { error: "Failed to create dish" },

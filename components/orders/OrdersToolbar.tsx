@@ -18,6 +18,7 @@ interface OrdersToolbarProps {
   /** Counts per status (after branch filter) */
   statusCounts: Record<string, number>;
   totalCount: number;
+  branchLocked?: boolean;
 }
 
 const STATUS_COLORS: Record<string, { active: string; inactive: string }> = {
@@ -62,6 +63,7 @@ const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
   onSearchChange,
   statusCounts,
   totalCount,
+  branchLocked = false,
 }) => (
   <div className="space-y-4 mb-6">
     {/* Row 1: Search + Branch */}
@@ -101,9 +103,9 @@ const OrdersToolbar: React.FC<OrdersToolbarProps> = ({
               const v = e.target.value;
               onBranchChange(v === "all" ? "all" : Number(v));
             }}
-            disabled={branchesLoading}
+            disabled={branchesLoading || branchLocked}
           >
-            <option value="all">All Branches</option>
+            {!branchLocked && <option value="all">All Branches</option>}
             {branches.map((b) => (
               <option key={b.branch_id} value={b.branch_id}>
                 {b.branch_name}

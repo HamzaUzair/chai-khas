@@ -11,6 +11,7 @@ interface HallsToolbarProps {
   onBranchChange: (v: number | "all") => void;
   search: string;
   onSearchChange: (v: string) => void;
+  branchLocked?: boolean;
 }
 
 const HallsToolbar: React.FC<HallsToolbarProps> = ({
@@ -20,6 +21,7 @@ const HallsToolbar: React.FC<HallsToolbarProps> = ({
   onBranchChange,
   search,
   onSearchChange,
+  branchLocked = false,
 }) => (
   <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
     <div className="flex flex-col lg:flex-row lg:items-end gap-4">
@@ -36,9 +38,9 @@ const HallsToolbar: React.FC<HallsToolbarProps> = ({
             const v = e.target.value;
             onBranchChange(v === "all" ? "all" : Number(v));
           }}
-          disabled={branchesLoading}
+          disabled={branchesLoading || branchLocked}
         >
-          <option value="all">All Branches</option>
+          {!branchLocked && <option value="all">All Branches</option>}
           {branches.map((b) => (
             <option key={b.branch_id} value={b.branch_id}>
               {b.branch_name}
@@ -61,14 +63,14 @@ const HallsToolbar: React.FC<HallsToolbarProps> = ({
           <input
             type="text"
             className="w-full border border-gray-200 rounded-lg pl-9 pr-3.5 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
-            placeholder='Search by name, ID, or capacity…'
+            placeholder='Search by hall or table name…'
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
         <p className="flex items-center gap-1 text-[11px] text-gray-400 mt-1">
           <Lightbulb size={10} />
-          Tip: try &quot;Outdoor&quot; or &quot;50&quot;
+          Tip: try &quot;Hall A&quot; or &quot;Table 1&quot;
         </p>
       </div>
     </div>

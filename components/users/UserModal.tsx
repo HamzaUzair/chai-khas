@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { X, UserCog } from "lucide-react";
 import type { AppUser, UserFormData, UserRole } from "@/types/user";
-import { USER_ROLES, USER_ROLE_LABELS } from "@/types/user";
+import { USER_ROLE_LABELS } from "@/types/user";
 
 const emptyForm: UserFormData = {
   username: "",
@@ -28,6 +28,10 @@ interface UserModalProps {
   onSubmit: (data: UserFormData) => void;
   editUser?: AppUser | null;
   branches: BranchOption[];
+  roleOptions?: UserRole[];
+  branchLocked?: boolean;
+  fixedBranchId?: number | null;
+  title?: string;
 }
 
 const UserModal: React.FC<UserModalProps> = ({
@@ -36,6 +40,10 @@ const UserModal: React.FC<UserModalProps> = ({
   onSubmit,
   editUser,
   branches,
+  roleOptions = [],
+  branchLocked = false,
+  fixedBranchId = null,
+  title,
 }) => {
   const [form, setForm] = useState<UserFormData>(emptyForm);
   const [errors, setErrors] = useState<Partial<Record<keyof UserFormData, string>>>({});
@@ -60,10 +68,14 @@ const UserModal: React.FC<UserModalProps> = ({
         status: editUser.status,
       });
     } else {
-      setForm(emptyForm);
+      setForm({
+        ...emptyForm,
+        branchId: branchLocked && fixedBranchId ? fixedBranchId : "",
+        role: roleOptions.length === 1 ? roleOptions[0] : "",
+      });
     }
     setErrors({});
-  }, [isOpen, editUser]);
+  }, [isOpen, editUser, branchLocked, fixedBranchId, roleOptions]);
 
   /* ── ESC closes ── */
   const handleKey = useCallback(
@@ -82,6 +94,12 @@ const UserModal: React.FC<UserModalProps> = ({
   useEffect(() => {
     if (isSuperAdmin) setForm((p) => ({ ...p, branchId: "" }));
   }, [isSuperAdmin]);
+
+  useEffect(() => {
+    if (branchLocked && fixedBranchId) {
+      setForm((p) => ({ ...p, branchId: fixedBranchId }));
+    }
+  }, [branchLocked, fixedBranchId]);
 
   /* ── Validate ── */
   const validate = (): boolean => {
@@ -108,7 +126,9 @@ const UserModal: React.FC<UserModalProps> = ({
 
     if (!form.role) errs.role = "Please select a role.";
 
-    if (form.role === "BRANCH_ADMIN" && form.branchId === "") errs.branchId = "Branch is required for Branch Admin.";
+    if (form.role && form.role !== "SUPER_ADMIN" && form.branchId === "") {
+      errs.branchId = "Branch is required for this role.";
+    }
 
     const t = Number(form.terminal);
     if (isNaN(t) || t < 1) errs.terminal = "Terminal must be ≥ 1.";
@@ -140,7 +160,7 @@ const UserModal: React.FC<UserModalProps> = ({
               <UserCog size={18} className="text-[#ff5a1f]" />
             </div>
             <h2 className="text-lg font-bold text-gray-800">
-              {isEdit ? "Edit User" : "Add New User"}
+              {title ?? (isEdit ? "Edit User" : "Add New User")}
             </h2>
           </div>
           <button
@@ -228,10 +248,14 @@ const UserModal: React.FC<UserModalProps> = ({
               className={`${inputBase} appearance-none cursor-pointer ${errors.role ? "border-red-400" : "border-gray-200"}`}
               value={form.role}
               onChange={(e) => setForm((p) => ({ ...p, role: e.target.value as UserRole | "" }))}
+              disabled={branchLocked && roleOptions.length === 1}
             >
               <option value="">Select role</option>
-              <option value="SUPER_ADMIN">Super Admin</option>
-              <option value="BRANCH_ADMIN">Branch Admin</option>
+              {roleOptions.map((role) => (
+                <option key={role} value={role}>
+                  {USER_ROLE_LABELS[role]}
+                </option>
+              ))}
             </select>
             {errors.role && <p className="text-xs text-red-500 mt-1">{errors.role}</p>}
           </div>
@@ -250,10 +274,18 @@ const UserModal: React.FC<UserModalProps> = ({
                   branchId: e.target.value === "" ? "" : Number(e.target.value),
                 }))
               }
-              disabled={isSuperAdmin}
+              disabled={isSuperAdmin || branchLocked}
             >
               {isSuperAdmin ? (
                 <option value="">No Branch (Super Admin)</option>
+              ) : branchLocked ? (
+                branches
+                  .filter((b) => b.branch_id === fixedBranchId)
+                  .map((b) => (
+                    <option key={b.branch_id} value={b.branch_id}>
+                      {b.branch_name} ({b.branch_code})
+                    </option>
+                  ))
               ) : (
                 <>
                   <option value="">Select branch</option>
@@ -265,9 +297,9 @@ const UserModal: React.FC<UserModalProps> = ({
                 </>
               )}
             </select>
-            {form.role === "BRANCH_ADMIN" && (
+            {form.role && form.role !== "SUPER_ADMIN" && (
               <p className="text-[11px] text-gray-400 mt-1">
-                Required for Branch Admin
+                Required for branch-scoped roles
               </p>
             )}
             {errors.branchId && <p className="text-xs text-red-500 mt-1">{errors.branchId}</p>}

@@ -15,6 +15,7 @@ export type PaymentMode = "Cash" | "Card" | "Online" | "Credit";
 export interface OrderItem {
   id: string;
   name: string;
+  variationName?: string | null;
   qty: number;
   price: number;
 }
@@ -25,7 +26,9 @@ export interface Order {
   branchId: number;
   branchName: string;
   type: OrderType;
+  hall?: string;
   table?: string;
+  notes?: string;
   total: number;
   status: OrderStatus;
   paymentMode: PaymentMode;

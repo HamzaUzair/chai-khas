@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
 
 type IncomingVariation = { name?: string; price?: number | string };
 
@@ -42,6 +43,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
     const { id } = await params;
     const menuId = parseInt(id, 10);
 
@@ -111,6 +113,7 @@ export async function PUT(
         { status: 404 }
       );
     }
+    assertBranchAccess(auth, existing.branchId);
 
     const hasVars = Boolean(hasVariations);
     const normalizedRows = normalizeVariations(variations);
@@ -218,6 +221,9 @@ export async function PUT(
 
     return NextResponse.json(serialized);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("PUT /api/menu/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to update menu item" },
@@ -228,10 +234,11 @@ export async function PUT(
 
 /* ── DELETE /api/menu/[id] ── */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
     const { id } = await params;
     const menuId = parseInt(id, 10);
 
@@ -251,6 +258,7 @@ export async function DELETE(
         { status: 404 }
       );
     }
+    assertBranchAccess(auth, existing.branchId);
 
     await prisma.menu.delete({
       where: { id: menuId },
@@ -258,6 +266,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("DELETE /api/menu/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to delete menu item" },

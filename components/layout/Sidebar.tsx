@@ -20,9 +20,11 @@ import {
   Grid3X3,
   Users,
   UserCog,
+  ShieldCheck,
   TrendingUp,
   X,
 } from "lucide-react";
+import { getAuthSession } from "@/lib/auth-client";
 
 interface SidebarItem {
   label: string;
@@ -30,7 +32,7 @@ interface SidebarItem {
   href?: string; // only items with href will navigate
 }
 
-const menuItems: SidebarItem[] = [
+const allMenuItems: SidebarItem[] = [
   { label: "Dashboard", icon: <LayoutDashboard size={20} />, href: "/dashboard" },
   { label: "Branches", icon: <Building2 size={20} />, href: "/branches" },
   { label: "Categories", icon: <Tag size={20} />, href: "/categories" },
@@ -39,16 +41,35 @@ const menuItems: SidebarItem[] = [
   { label: "Kitchen", icon: <ChefHat size={20} />, href: "/kitchen" },
   { label: "Printers", icon: <Printer size={20} />, href: "/printers" },
   { label: "Orders", icon: <ClipboardList size={20} />, href: "/orders" },
+  { label: "New Order / POS", icon: <ClipboardList size={20} />, href: "/create-order" },
   { label: "Sales List", icon: <Receipt size={20} />, href: "/sales-list" },
   { label: "Sales Report", icon: <BarChart3 size={20} />, href: "/sales-report" },
   { label: "Menu Sales", icon: <PieChart size={20} />, href: "/menu-sales" },
   { label: "Expenses", icon: <Wallet size={20} />, href: "/expenses" },
   { label: "Day End", icon: <CalendarCheck size={20} />, href: "/dayend" },
-  { label: "Seating", icon: <Grid3X3 size={20} />, href: "/seating" },
+  { label: "Halls", icon: <Grid3X3 size={20} />, href: "/halls" },
+  { label: "Roles", icon: <ShieldCheck size={20} />, href: "/roles" },
   { label: "Customers", icon: <Users size={20} /> },
   { label: "Users", icon: <UserCog size={20} />, href: "/users" },
   { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
 ];
+
+const branchAdminAllowedLabels = new Set([
+  "Dashboard",
+  "Categories",
+  "Menu",
+  "Deals",
+  "Kitchen",
+  "Orders",
+  "Sales List",
+  "Sales Report",
+  "Menu Sales",
+  "Expenses",
+  "Day End",
+  "Halls",
+  "Roles",
+  "Advanced Analytics",
+]);
 
 interface SidebarProps {
   isOpen: boolean;
@@ -57,6 +78,21 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const pathname = usePathname();
+  const session = getAuthSession();
+  const isBranchAdmin = session?.role === "BRANCH_ADMIN";
+  const isOrderTaker = session?.role === "ORDER_TAKER";
+  const isStaffRole =
+    isOrderTaker || session?.role === "CASHIER" || session?.role === "ACCOUNTANT";
+
+  const menuItems = isOrderTaker
+    ? allMenuItems.filter((item) =>
+        ["Dashboard", "New Order / POS", "Orders"].includes(item.label)
+      )
+    : isStaffRole
+    ? allMenuItems.filter((item) => item.label === "Dashboard")
+    : isBranchAdmin
+    ? allMenuItems.filter((item) => branchAdminAllowedLabels.has(item.label))
+    : allMenuItems;
 
   const baseClasses =
     "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer";
@@ -85,7 +121,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <UtensilsCrossed size={18} className="text-white" />
             </div>
             <span className="text-lg font-bold text-[#ff5a1f] tracking-wide">
-              Super Admin
+              {isBranchAdmin ? "Branch Admin" : isStaffRole ? "Staff Panel" : "Super Admin"}
             </span>
           </div>
           <button

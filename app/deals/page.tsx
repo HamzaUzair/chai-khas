@@ -9,6 +9,7 @@
  import { useRouter } from "next/navigation";
  import { PlusCircle, BadgePercent } from "lucide-react";
  import DashboardLayout from "@/components/layout/DashboardLayout";
+ import type { AppRole } from "@/types/auth";
  import type { Branch } from "@/types/branch";
  import type { Deal, DealFormData } from "@/types/deal";
  import DealsToolbar, {
@@ -19,10 +20,13 @@
  import DeleteDealModal from "@/components/deals/DeleteDealModal";
  import DealsTable from "@/components/deals/DealsTable";
  import type { ViewMode } from "@/components/menu/ViewToggle";
+ import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
  export default function DealsPage() {
    const router = useRouter();
    const [authorized, setAuthorized] = useState(false);
+  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
 
    /* Branches from API */
    const [branches, setBranches] = useState<Branch[]>([]);
@@ -45,9 +49,15 @@
 
    /* Auth guard */
    useEffect(() => {
-     if (localStorage.getItem("isAuthenticated") !== "true") {
+    const session = getAuthSession();
+    if (!session) {
        router.replace("/login");
      } else {
+      setSessionRole(session.role);
+      setSessionBranchId(session.branchId ?? null);
+      if (session.role === "BRANCH_ADMIN" && session.branchId) {
+        setFilterBranchId(session.branchId);
+      }
        setAuthorized(true);
      }
    }, [router]);
@@ -56,7 +66,7 @@
    const fetchBranches = useCallback(async () => {
      setBranchesLoading(true);
      try {
-       const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
        if (!res.ok) throw new Error();
        const data: Branch[] = await res.json();
        setBranches(data.filter((b) => b.status === "Active"));
@@ -76,11 +86,15 @@
     setDealsLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filterBranchId !== "all") params.set("branchId", String(filterBranchId));
+      const effectiveBranchId =
+        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+          ? sessionBranchId
+          : filterBranchId;
+      if (effectiveBranchId !== "all") params.set("branchId", String(effectiveBranchId));
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (search.trim()) params.set("search", search.trim());
 
-      const res = await fetch(`/api/deals${params.toString() ? `?${params}` : ""}`);
+      const res = await apiFetch(`/api/deals${params.toString() ? `?${params}` : ""}`);
       if (!res.ok) throw new Error("Failed to fetch deals");
       const data: Deal[] = await res.json();
       setDeals(data);
@@ -90,7 +104,7 @@
     } finally {
       setDealsLoading(false);
     }
-  }, [filterBranchId, statusFilter, search]);
+  }, [filterBranchId, statusFilter, search, sessionRole, sessionBranchId]);
 
   useEffect(() => {
     if (authorized && !branchesLoading) {
@@ -137,7 +151,7 @@
       const url = editingDeal ? `/api/deals/${editingDeal.id}` : "/api/deals";
       const method = editingDeal ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -163,7 +177,7 @@
   const confirmDeleteDeal = async () => {
      if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/deals/${deleteTarget.id}`, {
+      const res = await apiFetch(`/api/deals/${deleteTarget.id}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -244,7 +258,10 @@
          branches={branches}
          branchesLoading={branchesLoading}
          filterBranchId={filterBranchId}
-         onBranchChange={setFilterBranchId}
+        onBranchChange={(v) => {
+          if (sessionRole === "BRANCH_ADMIN") return;
+          setFilterBranchId(v);
+        }}
          statusFilter={statusFilter}
          onStatusChange={setStatusFilter}
          search={search}

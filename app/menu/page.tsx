@@ -10,8 +10,10 @@ import MenuTable from "@/components/menu/MenuTable";
 import MenuItemModal from "@/components/menu/MenuItemModal";
 import type { ViewMode } from "@/components/menu/ViewToggle";
 import type { Branch } from "@/types/branch";
+import type { AppRole } from "@/types/auth";
 import type { MenuItem, MenuItemFormData } from "@/types/menu";
 import type { ApiCategory } from "@/types/category";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
 interface ApiMenuRow {
   id: number;
@@ -35,6 +37,8 @@ interface ApiMenuRow {
 export default function MenuPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
 
   /* ── Branches from API ── */
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -57,9 +61,15 @@ export default function MenuPage() {
 
   /* ──────────────── Auth guard ──────────────── */
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") !== "true") {
+    const session = getAuthSession();
+    if (!session) {
       router.replace("/login");
     } else {
+      setSessionRole(session.role);
+      setSessionBranchId(session.branchId ?? null);
+      if (session.role === "BRANCH_ADMIN" && session.branchId) {
+        setFilterBranchId(session.branchId);
+      }
       setAuthorized(true);
     }
   }, [router]);
@@ -68,7 +78,7 @@ export default function MenuPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const data: Branch[] = await res.json();
       setBranches(data.filter((b) => b.status === "Active"));
@@ -94,12 +104,16 @@ export default function MenuPage() {
     setMenuItemsLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filterBranchId !== "all") params.set("branchId", String(filterBranchId));
+      const effectiveBranchId =
+        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+          ? sessionBranchId
+          : filterBranchId;
+      if (effectiveBranchId !== "all") params.set("branchId", String(effectiveBranchId));
       if (filterCategoryName !== "all") params.set("category", filterCategoryName);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
       const url = `/api/menu${params.toString() ? `?${params}` : ""}`;
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       if (!res.ok) throw new Error();
       const data: ApiMenuRow[] = await res.json();
       // API already returns branchName, but ensure type alignment
@@ -124,7 +138,7 @@ export default function MenuPage() {
     } finally {
       setMenuItemsLoading(false);
     }
-  }, [filterBranchId, filterCategoryName, statusFilter, debouncedSearch]);
+  }, [filterBranchId, filterCategoryName, statusFilter, debouncedSearch, sessionRole, sessionBranchId]);
 
   useEffect(() => {
     if (authorized && !branchesLoading) {
@@ -135,11 +149,15 @@ export default function MenuPage() {
   /* ──────────────── Fetch categories from API ──────────────── */
   const fetchCategoryNames = useCallback(async () => {
     try {
+      const effectiveBranchId =
+        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+          ? sessionBranchId
+          : filterBranchId;
       const url =
-        filterBranchId === "all"
+        effectiveBranchId === "all"
           ? "/api/categories"
-          : `/api/categories?branch_id=${filterBranchId}`;
-      const res = await fetch(url);
+          : `/api/categories?branch_id=${effectiveBranchId}`;
+      const res = await apiFetch(url);
       if (!res.ok) throw new Error();
       const data: ApiCategory[] = await res.json();
 
@@ -155,7 +173,7 @@ export default function MenuPage() {
     } catch {
       setCategoryNames([]);
     }
-  }, [filterBranchId, branches]);
+  }, [filterBranchId, branches, sessionRole, sessionBranchId]);
 
   useEffect(() => {
     if (authorized && !branchesLoading) {
@@ -188,7 +206,7 @@ export default function MenuPage() {
 
     try {
       if (editingItem) {
-        const res = await fetch(`/api/menu/${editingItem.id}`, {
+        const res = await apiFetch(`/api/menu/${editingItem.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -211,7 +229,7 @@ export default function MenuPage() {
           throw new Error(err.error || "Failed to update");
         }
       } else {
-        const res = await fetch("/api/menu", {
+        const res = await apiFetch("/api/menu", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -246,7 +264,7 @@ export default function MenuPage() {
   const handleDelete = async (item: MenuItem) => {
     if (!window.confirm(`Delete "${item.name}"?`)) return;
     try {
-      const res = await fetch(`/api/menu/${item.id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/menu/${item.id}`, { method: "DELETE" });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Failed to delete");
@@ -322,6 +340,7 @@ export default function MenuPage() {
         branchesLoading={branchesLoading}
         filterBranchId={filterBranchId}
         onBranchChange={(v) => {
+          if (sessionRole === "BRANCH_ADMIN") return;
           setFilterBranchId(v);
           setFilterCategoryName("all");
         }}

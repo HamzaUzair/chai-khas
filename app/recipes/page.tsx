@@ -21,6 +21,7 @@ import {
   generateDemoRecipes,
 } from "@/lib/recipesStorage";
 import { loadItems, generateMockItems } from "@/lib/inventoryData";
+import { apiFetch } from "@/lib/auth-client";
 
 interface Toast {
   id: number;
@@ -121,7 +122,7 @@ export default function RecipesPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const data: Branch[] = await res.json();
       setBranches(data.filter((b) => b.status === "Active"));
@@ -160,7 +161,7 @@ export default function RecipesPage() {
       const params = new URLSearchParams();
       if (filterBranchId !== "all") params.set("branchId", String(filterBranchId));
       const url = `/api/menu${params.toString() ? `?${params}` : ""}`;
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       if (!res.ok) throw new Error();
       const data: ApiMenuRow[] = await res.json();
       const branchMap = new Map(branches.map((b) => [b.branch_id, b.branch_name]));

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
 
 /* ── PUT /api/categories/[id] ── */
 export async function PUT(
@@ -7,6 +8,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
     const { id } = await params;
     const categoryId = parseInt(id, 10);
 
@@ -37,6 +39,7 @@ export async function PUT(
         { status: 404 }
       );
     }
+    assertBranchAccess(auth, existing.branch_id);
 
     const updated = await prisma.category.update({
       where: { category_id: categoryId },
@@ -91,6 +94,9 @@ export async function PUT(
 
     return NextResponse.json(serialized);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("PUT /api/categories/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to update category" },
@@ -101,10 +107,11 @@ export async function PUT(
 
 /* ── DELETE /api/categories/[id] ── */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
     const { id } = await params;
     const categoryId = parseInt(id, 10);
 
@@ -126,6 +133,8 @@ export async function DELETE(
       );
     }
 
+    assertBranchAccess(auth, category.branch_id);
+
     // Menu module stores items in `menu` table by category name (text).
     // Delete those rows together with category to keep counts/data consistent.
     await prisma.$transaction(async (tx) => {
@@ -143,6 +152,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("DELETE /api/categories/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to delete category" },

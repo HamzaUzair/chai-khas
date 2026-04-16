@@ -4,10 +4,13 @@ import React, { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
+import { apiFetch, getAuthSession, setAuthSession } from "@/lib/auth-client";
+import type { AuthSession } from "@/types/auth";
 
-// ── Hardcoded Super Admin credentials (temporary — will be replaced with Prisma auth) ──
-const SUPER_ADMIN_EMAIL = "sdmain@gmail.com";
-const SUPER_ADMIN_PASSWORD = "Asdf0010";
+function getDefaultRouteByRole(role: AuthSession["role"]) {
+  if (role === "ORDER_TAKER") return "/create-order";
+  return "/dashboard";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,29 +22,39 @@ export default function LoginPage() {
   // If already authenticated, redirect straight to dashboard
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const isAuth = localStorage.getItem("isAuthenticated");
-      if (isAuth === "true") {
-        router.replace("/dashboard");
+      const session = getAuthSession();
+      if (session) {
+        router.replace(getDefaultRouteByRole(session.role));
       }
     }
   }, [router]);
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);
 
-    // Simulate brief network delay for UX
-    setTimeout(() => {
-      if (email === SUPER_ADMIN_EMAIL && password === SUPER_ADMIN_PASSWORD) {
-        localStorage.setItem("isAuthenticated", "true");
-        localStorage.setItem("userRole", "super_admin");
-        router.push("/dashboard");
-      } else {
-        setError("Invalid email or password");
-        setIsLoading(false);
+    try {
+      const res = await apiFetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identifier: email,
+          password,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Invalid username/email or password");
       }
-    }, 600);
+
+      const session = data as AuthSession;
+      setAuthSession(session);
+      router.push(getDefaultRouteByRole(session.role));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed");
+      setIsLoading(false);
+    }
   };
 
   return (

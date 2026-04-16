@@ -16,20 +16,24 @@ import OrderCardList from "@/components/orders/OrderCardList";
 import OrderDetailsModal from "@/components/orders/OrderDetailsModal";
 import PaidReceiptModal from "@/components/orders/PaidReceiptModal";
 import type { Branch } from "@/types/branch";
+import type { AppRole } from "@/types/auth";
 import type { Order, OrderStatus } from "@/types/order";
 import { ORDER_STATUSES } from "@/types/order";
-import { getOrders, setOrders, generateDemoOrders } from "@/lib/ordersStorage";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
 export default function OrdersPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
 
   /* ── Branches ── */
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
 
-  /* ── Orders (localStorage) ── */
+  /* ── Orders ── */
   const [orders, setOrdersState] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
 
   /* ── Filters ── */
   const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
@@ -42,9 +46,18 @@ export default function OrdersPage() {
 
   /* ══════════════ Auth guard ══════════════ */
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") !== "true") {
+    const session = getAuthSession();
+    if (!session) {
       router.replace("/login");
     } else {
+      setSessionRole(session.role);
+      setSessionBranchId(session.branchId ?? null);
+      if (
+        (session.role === "BRANCH_ADMIN" || session.role === "ORDER_TAKER") &&
+        session.branchId
+      ) {
+        setFilterBranchId(session.branchId);
+      }
       setAuthorized(true);
     }
   }, [router]);
@@ -53,7 +66,7 @@ export default function OrdersPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const data: Branch[] = await res.json();
       setBranches(data.filter((b) => b.status === "Active"));
@@ -68,20 +81,29 @@ export default function OrdersPage() {
     if (authorized) fetchBranches();
   }, [authorized, fetchBranches]);
 
-  /* ══════════════ Load / init localStorage ══════════════ */
-  const loadOrders = useCallback(() => {
-    let stored = getOrders();
-    if (stored.length === 0 && branches.length > 0) {
-      stored = generateDemoOrders(
-        branches.map((b) => ({
-          branchId: b.branch_id,
-          branchName: b.branch_name,
-        }))
-      );
-      setOrders(stored);
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const params = new URLSearchParams();
+      const effectiveBranchId =
+        (sessionRole === "BRANCH_ADMIN" || sessionRole === "ORDER_TAKER") && sessionBranchId
+          ? sessionBranchId
+          : filterBranchId;
+      if (effectiveBranchId !== "all") params.set("branchId", String(effectiveBranchId));
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (search.trim()) params.set("search", search.trim());
+
+      const res = await apiFetch(`/api/orders${params.toString() ? `?${params}` : ""}`);
+      if (!res.ok) throw new Error("Failed to load orders");
+      const data: Order[] = await res.json();
+      setOrdersState(data);
+    } catch (error) {
+      console.error("Error loading orders:", error);
+      setOrdersState([]);
+    } finally {
+      setOrdersLoading(false);
     }
-    setOrdersState(stored);
-  }, [branches]);
+  }, [filterBranchId, statusFilter, search, sessionRole, sessionBranchId]);
 
   useEffect(() => {
     if (!authorized || branchesLoading) return;
@@ -90,7 +112,7 @@ export default function OrdersPage() {
 
   /* ══════════════ Refresh handler ══════════════ */
   const handleRefresh = () => {
-    loadOrders();
+    void loadOrders();
   };
 
   /* ══════════════ Branch-filtered orders (for counts) ══════════════ */
@@ -109,26 +131,7 @@ export default function OrdersPage() {
   }, [branchFiltered]);
 
   /* ══════════════ Fully filtered orders ══════════════ */
-  const filteredOrders = useMemo(() => {
-    let result = branchFiltered;
-
-    // Status
-    if (statusFilter !== "all") {
-      result = result.filter((o) => o.status === statusFilter);
-    }
-
-    // Search
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      result = result.filter(
-        (o) =>
-          o.orderNo.toLowerCase().includes(q) ||
-          o.id.toLowerCase().includes(q)
-      );
-    }
-
-    return result;
-  }, [branchFiltered, statusFilter, search]);
+  const filteredOrders = useMemo(() => branchFiltered, [branchFiltered]);
 
   /* ══════════════ Quick stats ══════════════ */
   const stats = useMemo(() => {
@@ -210,7 +213,7 @@ export default function OrdersPage() {
       </div>
 
       {/* ── Quick Stats ── */}
-      {!branchesLoading && (
+      {!branchesLoading && !ordersLoading && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {statCards.map((s) => (
             <div
@@ -238,27 +241,31 @@ export default function OrdersPage() {
         branches={branches}
         branchesLoading={branchesLoading}
         filterBranchId={filterBranchId}
-        onBranchChange={setFilterBranchId}
+        onBranchChange={(v) => {
+          if (sessionRole === "BRANCH_ADMIN" || sessionRole === "ORDER_TAKER") return;
+          setFilterBranchId(v);
+        }}
         statusFilter={statusFilter}
         onStatusChange={setStatusFilter}
         search={search}
         onSearchChange={setSearch}
         statusCounts={statusCounts}
         totalCount={branchFiltered.length}
+        branchLocked={sessionRole === "BRANCH_ADMIN" || sessionRole === "ORDER_TAKER"}
       />
 
       {/* ── Desktop: Table | Mobile: Card list ── */}
       <div className="hidden md:block">
         <OrdersTable
           orders={filteredOrders}
-          loading={branchesLoading}
+          loading={branchesLoading || ordersLoading}
           onView={setViewOrder}
         />
       </div>
       <div className="md:hidden">
         <OrderCardList
           orders={filteredOrders}
-          loading={branchesLoading}
+          loading={branchesLoading || ordersLoading}
           onView={setViewOrder}
         />
       </div>

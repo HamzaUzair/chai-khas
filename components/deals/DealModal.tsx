@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
  import type { Branch } from "@/types/branch";
  import type { Deal, DealFormData, DealFormDataItem } from "@/types/deal";
+import { apiFetch } from "@/lib/auth-client";
 
  interface DealModalProps {
    isOpen: boolean;
@@ -127,8 +128,8 @@ import { ChevronDown, X } from "lucide-react";
       setMenuOptionsError("");
       try {
         const [categoriesRes, menuRes] = await Promise.all([
-          fetch(`/api/categories?branch_id=${form.branchId}`),
-          fetch(`/api/menu?branchId=${form.branchId}&status=active`),
+          apiFetch(`/api/categories?branch_id=${form.branchId}`),
+          apiFetch(`/api/menu?branchId=${form.branchId}&status=active`),
         ]);
 
         if (!categoriesRes.ok || !menuRes.ok) {

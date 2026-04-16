@@ -7,6 +7,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import BranchTable from "@/components/branches/BranchTable";
 import CreateBranchModal from "@/components/branches/CreateBranchModal";
 import type { Branch, BranchFormData, ApiError } from "@/types/branch";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
 export default function BranchesPage() {
   const router = useRouter();
@@ -21,7 +22,7 @@ export default function BranchesPage() {
 
   // ── Auth guard ──
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") !== "true") {
+    if (!getAuthSession()) {
       router.replace("/login");
     } else {
       setAuthorized(true);
@@ -33,7 +34,7 @@ export default function BranchesPage() {
     setLoading(true);
     setFetchError("");
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error("Failed to fetch branches");
       const data: Branch[] = await res.json();
       setBranches(data);
@@ -78,7 +79,7 @@ export default function BranchesPage() {
   const handleSubmit = async (data: BranchFormData) => {
     if (editingBranch) {
       // ── PUT ──
-      const res = await fetch(`/api/branches/${editingBranch.branch_id}`, {
+      const res = await apiFetch(`/api/branches/${editingBranch.branch_id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -93,7 +94,7 @@ export default function BranchesPage() {
       );
     } else {
       // ── POST ──
-      const res = await fetch("/api/branches", {
+      const res = await apiFetch("/api/branches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -115,7 +116,7 @@ export default function BranchesPage() {
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`/api/branches/${branch.branch_id}`, {
+      const res = await apiFetch(`/api/branches/${branch.branch_id}`, {
         method: "DELETE",
       });
       if (!res.ok) {

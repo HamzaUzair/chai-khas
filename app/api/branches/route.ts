@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { AuthError, getScopedBranchId, requireAuth, requireSuperAdmin } from "@/lib/server-auth";
 
 /* ── GET /api/branches ── */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
+    const scopedBranchId = getScopedBranchId(auth, null);
+
     const branches = await prisma.branch.findMany({
+      where: scopedBranchId ? { branch_id: scopedBranchId } : undefined,
       orderBy: { created_at: "desc" },
     });
     return NextResponse.json(branches);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("GET /api/branches error:", err);
     return NextResponse.json(
       { error: "Failed to fetch branches" },
@@ -20,6 +28,9 @@ export async function GET() {
 /* ── POST /api/branches ── */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
+    requireSuperAdmin(auth);
+
     const body = await request.json();
     const { branch_name, branch_code, address, phone, email, status } = body;
 
@@ -61,6 +72,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(branch, { status: 201 });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("POST /api/branches error:", err);
     return NextResponse.json(
       { error: "Failed to create branch" },

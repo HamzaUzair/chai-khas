@@ -1,10 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { startOfDay, endOfDay, subDays, format } from "date-fns";
+import { AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
 
 /* ── GET /api/stats/dashboard ── */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
+    const { searchParams } = new URL(request.url);
+    const requestedBranchId = searchParams.get("branchId")
+      ? Number(searchParams.get("branchId"))
+      : null;
+    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
+
     const now = new Date();
     const todayStart = startOfDay(now);
     const todayEnd = endOfDay(now);
@@ -14,6 +22,7 @@ export async function GET() {
     const todayOrders = await prisma.order.findMany({
       where: {
         created_at: { gte: todayStart, lte: todayEnd },
+        ...(scopedBranchId ? { branch_id: scopedBranchId } : {}),
       },
       select: {
         order_id: true,
@@ -32,16 +41,27 @@ export async function GET() {
 
     /* ── 2. Total branches, menu items ── */
     const [totalBranches, menuItemsCount] = await Promise.all([
-      prisma.branch.count(),
-      prisma.menuItem.count(),
+      prisma.branch.count({
+        where: scopedBranchId ? { branch_id: scopedBranchId } : undefined,
+      }),
+      prisma.menuItem.count({
+        where: scopedBranchId ? { branch_id: scopedBranchId } : undefined,
+      }),
     ]);
 
-    /* ── 3. Active deals — no deals table in DB, return 0 ── */
-    const activeDeals = 0;
+    const activeDeals = await prisma.deal.count({
+      where: {
+        status: "Active",
+        ...(scopedBranchId ? { branch_id: scopedBranchId } : {}),
+      },
+    });
 
     /* ── 4. Sales last 7 days ── */
     const ordersLast7 = await prisma.order.findMany({
-      where: { created_at: { gte: sevenDaysAgo, lte: todayEnd } },
+      where: {
+        created_at: { gte: sevenDaysAgo, lte: todayEnd },
+        ...(scopedBranchId ? { branch_id: scopedBranchId } : {}),
+      },
       select: { created_at: true, net_total_amount: true },
     });
 
@@ -66,7 +86,10 @@ export async function GET() {
 
     /* ── 5. Branch performance today ── */
     const branches = await prisma.branch.findMany({
-      where: { status: "Active" },
+      where: {
+        status: "Active",
+        ...(scopedBranchId ? { branch_id: scopedBranchId } : {}),
+      },
       select: { branch_id: true, branch_name: true },
     });
 
@@ -130,7 +153,10 @@ export async function GET() {
 
     /* Low inventory (menu_items qnty < 10) */
     const lowStock = await prisma.menuItem.findMany({
-      where: { qnty: { lt: 10 } },
+      where: {
+        qnty: { lt: 10 },
+        ...(scopedBranchId ? { branch_id: scopedBranchId } : {}),
+      },
       select: { name: true },
       take: 5,
     });
@@ -138,7 +164,10 @@ export async function GET() {
 
     /* Offline printers */
     const offlinePrinters = await prisma.printer.findMany({
-      where: { status: { not: "active" } },
+      where: {
+        status: { not: "active" },
+        ...(scopedBranchId ? { branch_id: scopedBranchId } : {}),
+      },
       include: { branch: { select: { branch_name: true } } },
     });
     offlinePrinters.forEach((p) =>
@@ -154,6 +183,7 @@ export async function GET() {
       where: {
         order_status: "Running",
         created_at: { lt: twentyMinsAgo },
+        ...(scopedBranchId ? { branch_id: scopedBranchId } : {}),
       },
     });
     if (staleOrders > 0) {
@@ -191,6 +221,9 @@ export async function GET() {
       totalActiveBranches: branches.length,
     });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("GET /api/stats/dashboard error:", err);
     return NextResponse.json(
       { error: "Failed to fetch dashboard stats" },

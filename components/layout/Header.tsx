@@ -4,6 +4,7 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { Menu, LogOut, User } from "lucide-react";
 import ThemeToggle from "@/components/theme/ThemeToggle";
+import { clearAuthSession, getAuthSession } from "@/lib/auth-client";
 
 interface HeaderProps {
   title: string;
@@ -12,15 +13,25 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ title, onMenuToggle }) => {
   const router = useRouter();
+  const session = getAuthSession();
 
   const handleLogout = () => {
-    // Clear authentication data from localStorage
-    localStorage.removeItem("isAuthenticated");
-    localStorage.removeItem("userRole");
-    
-    // Redirect to login page
+    clearAuthSession();
     router.push("/login");
   };
+
+  const roleLabel =
+    session?.role === "SUPER_ADMIN"
+      ? "Super Admin"
+      : session?.role === "BRANCH_ADMIN"
+      ? "Branch Admin"
+      : session?.role === "ORDER_TAKER"
+      ? "Order Taker"
+      : session?.role === "CASHIER"
+      ? "Cashier"
+      : session?.role === "ACCOUNTANT"
+      ? "Accountant"
+      : "User";
 
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
@@ -43,7 +54,9 @@ const Header: React.FC<HeaderProps> = ({ title, onMenuToggle }) => {
             <User size={18} className="text-[#ff5a1f]" />
           </div>
           <span className="hidden sm:block text-sm font-medium text-gray-700">
-            Super Admin
+            {session
+              ? `${session.fullName} (${roleLabel}${session.branchName ? ` · ${session.branchName}` : ""})`
+              : "Super Admin"}
           </span>
         </div>
 

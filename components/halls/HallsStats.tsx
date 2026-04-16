@@ -1,18 +1,20 @@
 "use client";
 
 import React from "react";
-import { DoorOpen, Filter, Monitor } from "lucide-react";
+import { DoorOpen, Filter, Users, Armchair } from "lucide-react";
 
 interface HallsStatsProps {
   totalHalls: number;
   filteredCount: number;
-  terminalMode: number;
+  totalTables: number;
+  totalCapacity: number;
 }
 
 const HallsStats: React.FC<HallsStatsProps> = ({
   totalHalls,
   filteredCount,
-  terminalMode,
+  totalTables,
+  totalCapacity,
 }) => {
   const cards = [
     {
@@ -30,16 +32,23 @@ const HallsStats: React.FC<HallsStatsProps> = ({
       color: "text-blue-600",
     },
     {
-      label: "Terminal",
-      value: terminalMode,
-      icon: <Monitor size={20} />,
+      label: "Total Tables",
+      value: totalTables,
+      icon: <Users size={20} />,
       bg: "bg-green-50",
       color: "text-green-600",
+    },
+    {
+      label: "Total Capacity",
+      value: totalCapacity,
+      icon: <Armchair size={20} />,
+      bg: "bg-purple-50",
+      color: "text-purple-600",
     },
   ];
 
   return (
-    <div className="grid grid-cols-3 gap-4 mb-6">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       {cards.map((c) => (
         <div
           key={c.label}

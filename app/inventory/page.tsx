@@ -45,6 +45,7 @@ import {
   generateMockLog,
   MOCK_RECIPES,
 } from "@/lib/inventoryData";
+import { apiFetch } from "@/lib/auth-client";
 
 /* ═══════════ uid helper ═══════════ */
 let _pc = 0;
@@ -111,7 +112,7 @@ export default function InventoryPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const all: Branch[] = await res.json();
       setBranches(all.filter((b) => b.status === "Active").map((b) => ({ id: b.branch_id, name: b.branch_name })));

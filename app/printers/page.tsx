@@ -11,6 +11,7 @@ import DeletePrinterModal from "@/components/printers/DeletePrinterModal";
 import type { Branch } from "@/types/branch";
 import type { Printer, PrinterFormData, PrinterPurpose } from "@/types/printer";
 import { MOCK_PRINTERS } from "@/lib/printersData";
+import { apiFetch } from "@/lib/auth-client";
 
 function defaultPurposesForType(type: Printer["type"]): PrinterPurpose[] {
   const map: Record<Printer["type"], PrinterPurpose[]> = {
@@ -81,7 +82,7 @@ export default function PrintersPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const data: Branch[] = await res.json();
       setBranches(data.filter((b) => b.status === "Active"));

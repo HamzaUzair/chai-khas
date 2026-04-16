@@ -20,6 +20,7 @@ import BestSellersList from "@/components/analytics/BestSellersList";
 import PeakHoursChart from "@/components/analytics/PeakHoursChart";
 import type { Branch } from "@/types/branch";
 import type { DateRange } from "@/lib/analyticsService";
+import { apiFetch } from "@/lib/auth-client";
 import {
   getKpis,
   getRevenueTrend,
@@ -95,7 +96,7 @@ export default function AnalyticsPage() {
     (async () => {
       setBranchesLoading(true);
       try {
-        const res = await fetch("/api/branches");
+        const res = await apiFetch("/api/branches");
         if (!res.ok) throw new Error();
         const data: Branch[] = await res.json();
         setBranches(data.filter((b) => b.status === "Active"));

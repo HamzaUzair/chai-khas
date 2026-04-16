@@ -1,15 +1,16 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { X, DoorOpen } from "lucide-react";
+import { X, DoorOpen, Plus, Trash2 } from "lucide-react";
 import type { Branch } from "@/types/branch";
 import type { Hall, HallFormData } from "@/types/hall";
 
 const emptyForm: HallFormData = {
   name: "",
-  capacity: "0",
   terminal: "1",
+  status: "active",
   branchId: "",
+  tables: [],
 };
 
 interface HallModalProps {
@@ -21,6 +22,8 @@ interface HallModalProps {
   branchesLoading: boolean;
   /** When a branch is pre-selected via the page filter */
   preSelectedBranchId?: number | "all";
+  branchLocked?: boolean;
+  forcedBranchId?: number | null;
 }
 
 const HallModal: React.FC<HallModalProps> = ({
@@ -31,6 +34,8 @@ const HallModal: React.FC<HallModalProps> = ({
   activeBranches,
   branchesLoading,
   preSelectedBranchId,
+  branchLocked = false,
+  forcedBranchId = null,
 }) => {
   const [form, setForm] = useState<HallFormData>(emptyForm);
   const [errors, setErrors] = useState<Partial<Record<keyof HallFormData, string>>>({});
@@ -43,31 +48,54 @@ const HallModal: React.FC<HallModalProps> = ({
     if (editHall) {
       setForm({
         name: editHall.name,
-        capacity: String(editHall.capacity),
         terminal: String(editHall.terminal),
         branchId: editHall.branchId,
+        status: editHall.status,
+        tables: editHall.tables.map((t) => ({
+          id: t.id,
+          name: t.name,
+          capacity: String(t.capacity),
+          status:
+            t.status === "Occupied" || t.status === "Reserved"
+              ? t.status
+              : "Available",
+        })),
       });
     } else {
       const branchDefault =
+        forcedBranchId
+          ? forcedBranchId
+          :
         preSelectedBranchId && preSelectedBranchId !== "all"
           ? preSelectedBranchId
           : activeBranches.length === 1
             ? activeBranches[0].branch_id
             : "";
-      setForm({ ...emptyForm, branchId: branchDefault });
+      setForm({
+        ...emptyForm,
+        branchId: branchDefault,
+        tables: [{ name: "", capacity: "0", status: "Available" }],
+      });
     }
     setErrors({});
-  }, [isOpen, editHall, preSelectedBranchId, activeBranches]);
+  }, [isOpen, editHall, preSelectedBranchId, activeBranches, forcedBranchId]);
 
   /* ── Validation ── */
   const validate = (): boolean => {
     const errs: Partial<Record<keyof HallFormData, string>> = {};
     if (!form.name.trim()) errs.name = "Hall name is required.";
     if (form.branchId === "") errs.branchId = "Please select a branch.";
-    const cap = Number(form.capacity);
-    if (isNaN(cap) || cap < 0) errs.capacity = "Capacity must be 0 or above.";
     const term = Number(form.terminal);
     if (isNaN(term) || term < 1) errs.terminal = "Terminal must be at least 1.";
+    const validRows = form.tables.filter((t) => t.name.trim().length > 0);
+    if (validRows.length === 0) errs.tables = "At least one table is required.";
+    for (const row of validRows) {
+      const cap = Number(row.capacity);
+      if (Number.isNaN(cap) || cap < 1) {
+        errs.tables = "Each table capacity must be at least 1.";
+        break;
+      }
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -83,6 +111,20 @@ const HallModal: React.FC<HallModalProps> = ({
   const inputBase =
     "w-full border rounded-lg px-3.5 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all";
   const labelBase = "block text-xs font-medium text-gray-600 mb-1.5";
+
+  const addTableRow = () => {
+    setForm((p) => ({
+      ...p,
+      tables: [...p.tables, { name: "", capacity: "0", status: "Available" }],
+    }));
+  };
+
+  const removeTableRow = (idx: number) => {
+    setForm((p) => ({
+      ...p,
+      tables: p.tables.filter((_, i) => i !== idx),
+    }));
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -124,9 +166,9 @@ const HallModal: React.FC<HallModalProps> = ({
                   branchId: e.target.value === "" ? "" : Number(e.target.value),
                 }))
               }
-              disabled={branchesLoading}
+              disabled={branchesLoading || branchLocked}
             >
-              <option value="">Select a branch</option>
+              {!branchLocked && <option value="">Select a branch</option>}
               {activeBranches.map((b) => (
                 <option key={b.branch_id} value={b.branch_id}>
                   {b.branch_name}
@@ -155,21 +197,8 @@ const HallModal: React.FC<HallModalProps> = ({
             )}
           </div>
 
-          {/* Capacity + Terminal row */}
+          {/* Terminal + Status row */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelBase}>Capacity</label>
-              <input
-                type="number"
-                min={0}
-                className={`${inputBase} ${errors.capacity ? "border-red-400" : "border-gray-200"}`}
-                value={form.capacity}
-                onChange={(e) => setForm((p) => ({ ...p, capacity: e.target.value }))}
-              />
-              {errors.capacity && (
-                <p className="text-xs text-red-500 mt-1">{errors.capacity}</p>
-              )}
-            </div>
             <div>
               <label className={labelBase}>Terminal</label>
               <input
@@ -183,6 +212,110 @@ const HallModal: React.FC<HallModalProps> = ({
                 <p className="text-xs text-red-500 mt-1">{errors.terminal}</p>
               )}
             </div>
+            <div>
+              <label className={labelBase}>Status</label>
+              <select
+                className={`${inputBase} border-gray-200 appearance-none`}
+                value={form.status}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    status: e.target.value === "inactive" ? "inactive" : "active",
+                  }))
+                }
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Tables section */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className={labelBase}>
+                Tables <span className="text-red-400">*</span>
+              </label>
+              <button
+                type="button"
+                onClick={addTableRow}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-[#ff5a1f] hover:text-[#e04e18]"
+              >
+                <Plus size={13} />
+                Add Table
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-52 overflow-y-auto rounded-lg border border-gray-100 p-3 bg-gray-50/60">
+              {form.tables.map((table, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                  <input
+                    type="text"
+                    className={`col-span-6 ${inputBase} border-gray-200`}
+                    placeholder="Table 1"
+                    value={table.name}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        tables: p.tables.map((row, i) =>
+                          i === idx ? { ...row, name: e.target.value } : row
+                        ),
+                      }))
+                    }
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    className={`col-span-3 ${inputBase} border-gray-200`}
+                    placeholder="Capacity"
+                    value={table.capacity}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        tables: p.tables.map((row, i) =>
+                          i === idx ? { ...row, capacity: e.target.value } : row
+                        ),
+                      }))
+                    }
+                  />
+                  <select
+                    className={`col-span-2 ${inputBase} border-gray-200 appearance-none`}
+                    value={table.status}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        tables: p.tables.map((row, i) =>
+                          i === idx
+                            ? {
+                                ...row,
+                                status:
+                                  e.target.value === "Occupied" || e.target.value === "Reserved"
+                                    ? e.target.value
+                                    : "Available",
+                              }
+                            : row
+                        ),
+                      }))
+                    }
+                  >
+                    <option value="Available">Available</option>
+                    <option value="Occupied">Occupied</option>
+                    <option value="Reserved">Reserved</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => removeTableRow(idx)}
+                    className="col-span-1 p-2 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                    title="Remove table"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {errors.tables && (
+              <p className="text-xs text-red-500 mt-1">{errors.tables}</p>
+            )}
           </div>
         </form>
 

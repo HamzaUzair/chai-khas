@@ -11,6 +11,7 @@ import {
   BadgePercent,
   UtensilsCrossed,
   ClipboardList,
+  PlusCircle,
   Landmark,
   TrendingUp,
   DollarSign,
@@ -22,6 +23,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { DashboardStats } from "@/types/dashboard";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
 function formatPKR(amount: number): string {
   return `PKR ${amount.toLocaleString("en-PK")}`;
@@ -30,23 +32,32 @@ function formatPKR(amount: number): string {
 /* ── Quick action buttons (no Create Order) ── */
 const quickActions = [
   { label: "Branches", icon: <Building2 size={22} />, href: "/branches", color: "text-[#ff5a1f]", bg: "bg-[#ff5a1f]/10" },
+  { label: "New Order / POS", icon: <PlusCircle size={22} />, href: "/create-order", color: "text-blue-600", bg: "bg-blue-50" },
   { label: "Deals", icon: <BadgePercent size={22} />, href: "/deals", color: "text-purple-600", bg: "bg-purple-50" },
   { label: "Menu Items", icon: <UtensilsCrossed size={22} />, href: "/menu", color: "text-green-600", bg: "bg-green-50" },
   { label: "Orders", icon: <ClipboardList size={22} />, href: "/orders", color: "text-amber-600", bg: "bg-amber-50" },
   { label: "Accounts", icon: <Landmark size={22} />, href: "/users", color: "text-rose-600", bg: "bg-rose-50" },
 ];
 
+const orderTakerQuickActions = quickActions.filter(
+  (x) => x.href === "/create-order" || x.href === "/orders"
+);
+
 export default function DashboardPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const [sessionRole, setSessionRole] = useState<string>("SUPER_ADMIN");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
-    const isAuth = localStorage.getItem("isAuthenticated");
-    if (isAuth !== "true") {
+    const session = getAuthSession();
+    if (!session) {
       router.replace("/login");
     } else {
+      setSessionBranchId(session.branchId ?? null);
+      setSessionRole(session.role);
       setAuthorized(true);
     }
   }, [router]);
@@ -56,7 +67,11 @@ export default function DashboardPage() {
     const fetchStats = async () => {
       setStatsLoading(true);
       try {
-        const res = await fetch("/api/stats/dashboard");
+        const qs =
+          sessionBranchId && sessionRole === "BRANCH_ADMIN"
+            ? `?branchId=${sessionBranchId}`
+            : "";
+        const res = await apiFetch(`/api/stats/dashboard${qs}`);
         if (res.ok) {
           const data: DashboardStats = await res.json();
           setStats(data);
@@ -68,7 +83,7 @@ export default function DashboardPage() {
       }
     };
     fetchStats();
-  }, [authorized]);
+  }, [authorized, sessionBranchId, sessionRole]);
 
   if (!authorized) {
     return (
@@ -126,13 +141,32 @@ export default function DashboardPage() {
 
   const hasData = (stats?.ordersToday ?? 0) > 0 || (stats?.totalBranches ?? 0) > 0;
 
+  const visibleQuickActions =
+    sessionRole === "ORDER_TAKER"
+      ? orderTakerQuickActions
+      : sessionRole === "BRANCH_ADMIN"
+      ? quickActions.filter((x) => x.href !== "/branches" && x.href !== "/users")
+      : quickActions;
+
   return (
     <DashboardLayout title="Dashboard">
       {/* ── Page heading ── */}
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-800">Super Admin Dashboard</h2>
+        {sessionRole === "ORDER_TAKER" && (
+          <h2 className="text-2xl font-bold text-gray-800">Order Taker Dashboard</h2>
+        )}
+        {sessionRole === "BRANCH_ADMIN" && (
+          <h2 className="text-2xl font-bold text-gray-800">Branch Admin Dashboard</h2>
+        )}
+        {sessionRole !== "BRANCH_ADMIN" && sessionRole !== "ORDER_TAKER" && (
+          <h2 className="text-2xl font-bold text-gray-800">Super Admin Dashboard</h2>
+        )}
         <p className="text-sm text-gray-500 mt-1">
-          Monitoring, analytics, and branch performance
+          {sessionRole === "ORDER_TAKER"
+            ? "Take branch orders quickly and accurately"
+            : sessionRole === "BRANCH_ADMIN"
+            ? "Branch-level monitoring and analytics"
+            : "Monitoring, analytics, and branch performance"}
         </p>
       </div>
 
@@ -342,7 +376,7 @@ export default function DashboardPage() {
       <div className="mb-4">
         <h3 className="text-base font-semibold text-gray-800 mb-4">Quick Navigation</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {quickActions.map((a) => (
+          {visibleQuickActions.map((a) => (
             <Link
               key={a.label}
               href={a.href}

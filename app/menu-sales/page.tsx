@@ -17,6 +17,7 @@ import {
 } from "@/lib/menuSalesData";
 import { downloadMenuSalesCsv } from "@/lib/exportMenuSalesCsv";
 import type { Branch } from "@/types/branch";
+import { apiFetch } from "@/lib/auth-client";
 
 /* ── date helpers ── */
 function todayRange(): [string, string] {
@@ -66,7 +67,7 @@ export default function MenuSalesPage() {
 
     (async () => {
       try {
-        const res = await fetch("/api/branches");
+        const res = await apiFetch("/api/branches");
         if (!res.ok) throw new Error();
         const data: Branch[] = await res.json();
         const active = data

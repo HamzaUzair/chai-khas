@@ -31,6 +31,7 @@ import type {
   SortDir,
 } from "@/types/salesReport";
 import type { Branch } from "@/types/branch";
+import { apiFetch } from "@/lib/auth-client";
 
 /* ── toast ── */
 interface Toast {
@@ -124,7 +125,7 @@ export default function SalesReportPage() {
 
       let activeBranches: ReportBranch[] = [];
       try {
-        const res = await fetch("/api/branches");
+        const res = await apiFetch("/api/branches");
         if (!res.ok) throw new Error();
         const data: Branch[] = await res.json();
         activeBranches = data

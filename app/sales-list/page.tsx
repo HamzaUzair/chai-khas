@@ -23,6 +23,7 @@ import { generateSalesData } from "@/lib/salesListStorage";
 import { downloadCsv } from "@/lib/exportCsv";
 import type { SaleOrder, SaleStatus, PaymentMethod, SortField, SortDir, SaleBranch } from "@/types/salesList";
 import type { Branch } from "@/types/branch";
+import { apiFetch } from "@/lib/auth-client";
 
 /* ── toast ── */
 interface Toast {
@@ -107,7 +108,7 @@ export default function SalesListPage() {
 
       let activeBranches: SaleBranch[] = [];
       try {
-        const res = await fetch("/api/branches");
+        const res = await apiFetch("/api/branches");
         if (!res.ok) throw new Error();
         const data: Branch[] = await res.json();
         activeBranches = data

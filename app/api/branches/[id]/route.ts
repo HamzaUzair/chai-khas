@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { AuthError, requireAuth, requireSuperAdmin } from "@/lib/server-auth";
 
 /* ── DELETE /api/branches/[id] ── */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
+    requireSuperAdmin(auth);
+
     const { id } = await params;
     const branchId = parseInt(id, 10);
 
@@ -34,6 +38,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("DELETE /api/branches/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to delete branch" },
@@ -48,6 +55,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireAuth(request);
+    requireSuperAdmin(auth);
+
     const { id } = await params;
     const branchId = parseInt(id, 10);
 
@@ -99,6 +109,9 @@ export async function PUT(
 
     return NextResponse.json(updated);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("PUT /api/branches/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to update branch" },

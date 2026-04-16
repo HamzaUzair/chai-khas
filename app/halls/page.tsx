@@ -17,13 +17,9 @@ import HallsTable from "@/components/halls/HallsTable";
 import HallCardList from "@/components/halls/HallCardList";
 import HallModal from "@/components/halls/HallModal";
 import type { Branch } from "@/types/branch";
+import type { AppRole } from "@/types/auth";
 import type { Hall, HallFormData } from "@/types/hall";
-import {
-  getHalls,
-  setHalls,
-  nextHallId,
-  generateDemoHalls,
-} from "@/lib/hallsStorage";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
 /* ── tiny toast ── */
 interface Toast {
@@ -35,6 +31,8 @@ interface Toast {
 export default function HallsPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
 
   /* ── Branches ── */
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -42,6 +40,7 @@ export default function HallsPage() {
 
   /* ── Halls ── */
   const [halls, setHallsState] = useState<Hall[]>([]);
+  const [hallsLoading, setHallsLoading] = useState(true);
 
   /* ── Filters ── */
   const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
@@ -61,20 +60,17 @@ export default function HallsPage() {
     }, 3000);
   }, []);
 
-  /* ══════════════ Persist helper ══════════════ */
-  const persist = useCallback(
-    (updated: Hall[]) => {
-      setHallsState(updated);
-      setHalls(updated);
-    },
-    []
-  );
-
   /* ══════════════ Auth guard ══════════════ */
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") !== "true") {
+    const session = getAuthSession();
+    if (!session) {
       router.replace("/login");
     } else {
+      setSessionRole(session.role);
+      setSessionBranchId(session.branchId ?? null);
+      if (session.role === "BRANCH_ADMIN" && session.branchId) {
+        setFilterBranchId(session.branchId);
+      }
       setAuthorized(true);
     }
   }, [router]);
@@ -83,7 +79,7 @@ export default function HallsPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const data: Branch[] = await res.json();
       setBranches(data.filter((b) => b.status === "Active"));
@@ -98,42 +94,40 @@ export default function HallsPage() {
     if (authorized) fetchBranches();
   }, [authorized, fetchBranches]);
 
-  /* ══════════════ Load / seed localStorage ══════════════ */
-  const loadHalls = useCallback(() => {
-    let stored = getHalls();
-    if (stored.length === 0) {
-      const seedBranches =
-        branches.length > 0
-          ? branches.map((b) => ({ branchId: b.branch_id, branchName: b.branch_name }))
-          : [{ branchId: 0, branchName: "Main Branch" }];
-      stored = generateDemoHalls(seedBranches);
-      setHalls(stored);
+  const fetchHalls = useCallback(async () => {
+    setHallsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      const effectiveBranchId =
+        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+          ? sessionBranchId
+          : filterBranchId;
+      if (effectiveBranchId !== "all") {
+        params.set("branchId", String(effectiveBranchId));
+      }
+      if (search.trim()) params.set("search", search.trim());
+
+      const res = await apiFetch(`/api/halls${params.toString() ? `?${params}` : ""}`);
+      if (!res.ok) throw new Error("Failed to fetch halls");
+      const data: Hall[] = await res.json();
+      setHallsState(data);
+    } catch (error) {
+      console.error("Error fetching halls:", error);
+      setHallsState([]);
+    } finally {
+      setHallsLoading(false);
     }
-    setHallsState(stored);
-  }, [branches]);
+  }, [filterBranchId, search, sessionRole, sessionBranchId]);
 
   useEffect(() => {
     if (!authorized || branchesLoading) return;
-    loadHalls();
-  }, [authorized, branchesLoading, loadHalls]);
+    fetchHalls();
+  }, [authorized, branchesLoading, fetchHalls]);
 
   /* ══════════════ Filtered halls ══════════════ */
   const filtered = useMemo(() => {
-    let list = halls;
-    if (filterBranchId !== "all") {
-      list = list.filter((h) => h.branchId === filterBranchId);
-    }
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      list = list.filter(
-        (h) =>
-          h.name.toLowerCase().includes(q) ||
-          String(h.hallId).includes(q) ||
-          String(h.capacity).includes(q)
-      );
-    }
-    return list.sort((a, b) => b.createdAt - a.createdAt);
-  }, [halls, filterBranchId, search]);
+    return [...halls].sort((a, b) => b.createdAt - a.createdAt);
+  }, [halls]);
 
   /* ══════════════ CRUD handlers ══════════════ */
   const openCreate = () => {
@@ -151,49 +145,59 @@ export default function HallsPage() {
     setEditingHall(null);
   };
 
-  const handleSubmit = (data: HallFormData) => {
-    const branch = branches.find((b) => b.branch_id === Number(data.branchId));
-    const branchName = branch ? branch.branch_name : "Main Branch";
-    const now = Date.now();
-
-    if (editingHall) {
-      const updated = halls.map((h) =>
-        h.id === editingHall.id
-          ? {
-              ...h,
-              name: data.name.trim(),
-              capacity: Math.max(0, Number(data.capacity) || 0),
-              terminal: Math.max(1, Number(data.terminal) || 1),
-              branchId: Number(data.branchId),
-              branchName,
-              updatedAt: now,
-            }
-          : h
-      );
-      persist(updated);
-      pushToast(`Hall "${data.name.trim()}" updated successfully.`);
-    } else {
-      const newHall: Hall = {
-        id: (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`),
-        hallId: nextHallId(halls),
+  const handleSubmit = async (data: HallFormData) => {
+    try {
+      const payload = {
         name: data.name.trim(),
-        capacity: Math.max(0, Number(data.capacity) || 0),
+        branchId:
+          sessionRole === "BRANCH_ADMIN" && sessionBranchId
+            ? sessionBranchId
+            : data.branchId,
         terminal: Math.max(1, Number(data.terminal) || 1),
-        branchId: Number(data.branchId),
-        branchName,
-        createdAt: now,
-        updatedAt: now,
+        status: data.status,
+        tables: data.tables.map((t) => ({
+          name: t.name.trim(),
+          capacity: Math.max(0, Number(t.capacity) || 0),
+          status: t.status,
+        })),
       };
-      persist([newHall, ...halls]);
-      pushToast(`Hall "${data.name.trim()}" created successfully.`);
+
+      const url = editingHall ? `/api/halls/${editingHall.hallId}` : "/api/halls";
+      const method = editingHall ? "PUT" : "POST";
+
+      const res = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to save hall");
+      }
+
+      await fetchHalls();
+      pushToast(`Hall "${data.name.trim()}" ${editingHall ? "updated" : "created"} successfully.`);
+      closeModal();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "Failed to save hall", "error");
     }
-    closeModal();
   };
 
-  const handleDelete = (hall: Hall) => {
+  const handleDelete = async (hall: Hall) => {
     if (!window.confirm(`Delete hall "${hall.name}"? This cannot be undone.`)) return;
-    persist(halls.filter((h) => h.id !== hall.id));
-    pushToast(`Hall "${hall.name}" deleted.`, "error");
+    try {
+      const res = await apiFetch(`/api/halls/${hall.hallId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to delete hall");
+      }
+      await fetchHalls();
+      pushToast(`Hall "${hall.name}" deleted.`, "error");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : "Failed to delete hall", "error");
+    }
   };
 
   /* ══════════════ Auth loading ══════════════ */
@@ -249,7 +253,7 @@ export default function HallsPage() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={loadHalls}
+              onClick={fetchHalls}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors cursor-pointer"
             >
               <RefreshCw size={15} />
@@ -283,20 +287,25 @@ export default function HallsPage() {
         branches={branches}
         branchesLoading={branchesLoading}
         filterBranchId={filterBranchId}
-        onBranchChange={setFilterBranchId}
+        onBranchChange={(v) => {
+          if (sessionRole === "BRANCH_ADMIN") return;
+          setFilterBranchId(v);
+        }}
         search={search}
         onSearchChange={setSearch}
+        branchLocked={sessionRole === "BRANCH_ADMIN"}
       />
 
       {/* ── Stats ── */}
       <HallsStats
         totalHalls={halls.length}
         filteredCount={filtered.length}
-        terminalMode={1}
+        totalTables={halls.reduce((sum, hall) => sum + hall.tableCount, 0)}
+        totalCapacity={halls.reduce((sum, hall) => sum + hall.totalCapacity, 0)}
       />
 
       {/* ── Content ── */}
-      {!branchesLoading && filtered.length === 0 ? (
+      {(!branchesLoading && !hallsLoading && filtered.length === 0) ? (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
           <div className="px-6 py-16 flex flex-col items-center gap-3 text-center">
             <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
@@ -324,8 +333,9 @@ export default function HallsPage() {
           <div className="hidden md:block">
             <HallsTable
               halls={filtered}
-              loading={branchesLoading}
+              loading={branchesLoading || hallsLoading}
               onEdit={openEdit}
+              onManageTables={openEdit}
               onDelete={handleDelete}
             />
           </div>
@@ -333,8 +343,9 @@ export default function HallsPage() {
           <div className="md:hidden">
             <HallCardList
               halls={filtered}
-              loading={branchesLoading}
+              loading={branchesLoading || hallsLoading}
               onEdit={openEdit}
+              onManageTables={openEdit}
               onDelete={handleDelete}
             />
           </div>
@@ -350,6 +361,8 @@ export default function HallsPage() {
         activeBranches={branches}
         branchesLoading={branchesLoading}
         preSelectedBranchId={filterBranchId}
+        branchLocked={sessionRole === "BRANCH_ADMIN"}
+        forcedBranchId={sessionRole === "BRANCH_ADMIN" ? sessionBranchId : null}
       />
     </DashboardLayout>
   );

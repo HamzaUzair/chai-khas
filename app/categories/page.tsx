@@ -10,11 +10,13 @@ import CategoryTable from "@/components/categories/CategoryTable";
 import CategoryModal from "@/components/categories/CategoryModal";
 import ViewToggle, { type ViewMode } from "@/components/menu/ViewToggle";
 import type { Branch } from "@/types/branch";
+import type { AppRole } from "@/types/auth";
 import type {
   BranchCategoryData,
   Category,
   ApiCategory,
 } from "@/types/category";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
 // Transform API response to frontend format (category-only, no items)
 function transformApiCategory(apiCat: ApiCategory): Category {
@@ -31,6 +33,8 @@ function transformApiCategory(apiCat: ApiCategory): Category {
 export default function CategoriesPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
 
   /* ── Branches from API ── */
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -52,9 +56,15 @@ export default function CategoriesPage() {
 
   /* ──────────────── Auth guard ──────────────── */
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") !== "true") {
+    const session = getAuthSession();
+    if (!session) {
       router.replace("/login");
     } else {
+      setSessionRole(session.role);
+      setSessionBranchId(session.branchId ?? null);
+      if (session.role === "BRANCH_ADMIN" && session.branchId) {
+        setFilterBranchId(session.branchId);
+      }
       setAuthorized(true);
     }
   }, [router]);
@@ -63,7 +73,7 @@ export default function CategoriesPage() {
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
-      const res = await fetch("/api/branches");
+      const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const all: Branch[] = await res.json();
       setBranches(all.filter((b) => b.status === "Active"));
@@ -83,11 +93,15 @@ export default function CategoriesPage() {
     setCategoriesLoading(true);
     setCategoriesError("");
     try {
+      const effectiveBranchId =
+        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+          ? sessionBranchId
+          : filterBranchId;
       const url =
-        filterBranchId === "all"
+        effectiveBranchId === "all"
           ? "/api/categories"
-          : `/api/categories?branch_id=${filterBranchId}`;
-      const res = await fetch(url);
+          : `/api/categories?branch_id=${effectiveBranchId}`;
+      const res = await apiFetch(url);
       if (!res.ok) throw new Error("Failed to fetch categories");
       const data: ApiCategory[] = await res.json();
       setCategories(data);
@@ -97,7 +111,7 @@ export default function CategoriesPage() {
     } finally {
       setCategoriesLoading(false);
     }
-  }, [filterBranchId]);
+  }, [filterBranchId, sessionRole, sessionBranchId]);
 
   useEffect(() => {
     if (authorized && !branchesLoading) {
@@ -182,7 +196,7 @@ export default function CategoriesPage() {
   }) => {
     try {
       if (editingCat) {
-        const res = await fetch(`/api/categories/${editingCat.id}`, {
+        const res = await apiFetch(`/api/categories/${editingCat.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -196,7 +210,7 @@ export default function CategoriesPage() {
           throw new Error(error.error || "Failed to update category");
         }
       } else {
-        const res = await fetch("/api/categories", {
+        const res = await apiFetch("/api/categories", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -233,7 +247,7 @@ export default function CategoriesPage() {
     if (!window.confirm(confirmMessage)) return;
 
     try {
-      const res = await fetch(`/api/categories/${categoryId}`, {
+      const res = await apiFetch(`/api/categories/${categoryId}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -301,14 +315,16 @@ export default function CategoriesPage() {
       )}
 
       {/* ── Filter ── */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
-        <BranchFilter
-          branches={branches}
-          loading={branchesLoading}
-          value={filterBranchId}
-          onChange={(v) => setFilterBranchId(v)}
-        />
-      </div>
+      {sessionRole !== "BRANCH_ADMIN" && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+          <BranchFilter
+            branches={branches}
+            loading={branchesLoading}
+            value={filterBranchId}
+            onChange={(v) => setFilterBranchId(v)}
+          />
+        </div>
+      )}
 
       {/* ── Loading state ── */}
       {branchesLoading || categoriesLoading ? (
@@ -357,7 +373,7 @@ export default function CategoriesPage() {
         editCategory={editingCat}
         editBranchId={editingCatBranchId}
         activeBranches={branches}
-        showBranchSelect={filterBranchId === "all"}
+        showBranchSelect={sessionRole !== "BRANCH_ADMIN" && filterBranchId === "all"}
       />
     </DashboardLayout>
   );

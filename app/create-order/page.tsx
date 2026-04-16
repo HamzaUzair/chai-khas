@@ -2,107 +2,222 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Minus, Plus, Search, Trash2 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import OrderTopForm, {
-  type OrderType,
-} from "@/components/orders/OrderTopForm";
-import CategoryGrid from "@/components/orders/CategoryGrid";
-import ItemsPanel, { type MockItem } from "@/components/orders/ItemsPanel";
-import CartPanel, { type CartItem } from "@/components/orders/CartPanel";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
-/* ── Mock hall & table data ── */
-const mockHalls = [
-  { id: "hall-a", name: "Hall A" },
-  { id: "hall-b", name: "Hall B" },
-  { id: "hall-c", name: "Hall C" },
-];
+type OrderType = "Dine In" | "Take Away" | "Delivery";
 
-const mockTablesByHall: Record<string, { id: string; label: string }[]> = {
-  "hall-a": [
-    { id: "a1", label: "A-1" },
-    { id: "a2", label: "A-2" },
-    { id: "a3", label: "A-3" },
-    { id: "a4", label: "A-4" },
-  ],
-  "hall-b": [
-    { id: "b1", label: "B-1" },
-    { id: "b2", label: "B-2" },
-    { id: "b3", label: "B-3" },
-  ],
-  "hall-c": [
-    { id: "c1", label: "C-1" },
-    { id: "c2", label: "C-2" },
-  ],
+type ApiCategory = { category_id: number; name: string };
+type ApiMenuItem = {
+  id: number;
+  itemName: string;
+  category: string;
+  hasVariations: boolean;
+  basePrice: number | null;
+  price: number;
+  variations: Array<{ id: number; name: string; price: number }>;
+};
+type ApiHall = {
+  hallId: number;
+  name: string;
+  tables: Array<{ tableId: number; name: string; status: string; capacity: number }>;
+};
+type CartRow = {
+  key: string;
+  menuId: number;
+  menuName: string;
+  categoryName: string;
+  variationName: string | null;
+  unitPrice: number;
+  qty: number;
 };
 
 export default function CreateOrderPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const [sessionRole, setSessionRole] = useState<string>("ORDER_TAKER");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  // ── Top form state ──
+  const [categories, setCategories] = useState<ApiCategory[]>([]);
+  const [menuItems, setMenuItems] = useState<ApiMenuItem[]>([]);
+  const [halls, setHalls] = useState<ApiHall[]>([]);
+
   const [orderType, setOrderType] = useState<OrderType>("Dine In");
-  const [selectedHall, setSelectedHall] = useState("");
-  const [selectedTable, setSelectedTable] = useState("");
+  const [selectedHallId, setSelectedHallId] = useState<number | "">("");
+  const [selectedTableId, setSelectedTableId] = useState<number | "">("");
+  const [selectedCategory, setSelectedCategory] = useState<string | "all">("all");
+  const [search, setSearch] = useState("");
+  const [notes, setNotes] = useState("");
+  const [cart, setCart] = useState<CartRow[]>([]);
+  const [variationPickerFor, setVariationPickerFor] = useState<ApiMenuItem | null>(null);
 
-  // ── Category & cart state ──
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [cart, setCart] = useState<CartItem[]>([]);
-
-  // ── Auth guard ──
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") !== "true") {
+    const session = getAuthSession();
+    if (!session) {
       router.replace("/login");
-    } else {
-      setAuthorized(true);
+      return;
     }
+    if (!session.branchId) {
+      router.replace("/dashboard");
+      return;
+    }
+    if (
+      session.role !== "ORDER_TAKER" &&
+      session.role !== "BRANCH_ADMIN" &&
+      session.role !== "SUPER_ADMIN"
+    ) {
+      router.replace("/dashboard");
+      return;
+    }
+    setSessionRole(session.role);
+    setSessionBranchId(session.branchId);
+    setAuthorized(true);
   }, [router]);
 
-  // Clear hall/table when switching away from Dine In
-  const handleOrderTypeChange = useCallback((type: OrderType) => {
-    setOrderType(type);
-    if (type !== "Dine In") {
-      setSelectedHall("");
-      setSelectedTable("");
-    }
-  }, []);
-
-  const handleHallChange = useCallback((id: string) => {
-    setSelectedHall(id);
-    setSelectedTable("");
-  }, []);
-
-  // ── Cart helpers ──
-  const addToCart = useCallback((item: MockItem) => {
-    setCart((prev) => {
-      const existing = prev.find((c) => c.id === item.id);
-      if (existing) {
-        return prev.map((c) =>
-          c.id === item.id ? { ...c, qty: c.qty + 1 } : c
-        );
+  const loadContext = useCallback(async () => {
+    if (!sessionBranchId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const [categoriesRes, menuRes, hallsRes] = await Promise.all([
+        apiFetch(`/api/categories?branch_id=${sessionBranchId}`),
+        apiFetch(`/api/menu?branchId=${sessionBranchId}&status=active`),
+        apiFetch(`/api/halls?branchId=${sessionBranchId}`),
+      ]);
+      if (!categoriesRes.ok || !menuRes.ok || !hallsRes.ok) {
+        throw new Error("Failed to load order-taking data");
       }
-      return [...prev, { id: item.id, name: item.name, price: item.price, qty: 1 }];
+      const [categoriesData, menuData, hallsData] = await Promise.all([
+        categoriesRes.json(),
+        menuRes.json(),
+        hallsRes.json(),
+      ]);
+      setCategories((categoriesData as ApiCategory[]).sort((a, b) => a.name.localeCompare(b.name)));
+      setMenuItems(menuData as ApiMenuItem[]);
+      setHalls(hallsData as ApiHall[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load POS data");
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionBranchId]);
+
+  useEffect(() => {
+    if (!authorized || !sessionBranchId) return;
+    void loadContext();
+  }, [authorized, sessionBranchId, loadContext]);
+
+  const selectedHall = selectedHallId
+    ? halls.find((hall) => hall.hallId === selectedHallId) ?? null
+    : null;
+  const tables = selectedHall?.tables ?? [];
+
+  const visibleItems = menuItems.filter((item) => {
+    const catOk = selectedCategory === "all" || item.category === selectedCategory;
+    const searchOk =
+      !search.trim() ||
+      item.itemName.toLowerCase().includes(search.toLowerCase()) ||
+      item.category.toLowerCase().includes(search.toLowerCase());
+    return catOk && searchOk;
+  });
+
+  const addMenuItem = (item: ApiMenuItem, variationName: string | null, unitPrice: number) => {
+    const key = `${item.id}::${variationName ?? "base"}`;
+    setCart((prev) => {
+      const existing = prev.find((row) => row.key === key);
+      if (existing) {
+        return prev.map((row) => (row.key === key ? { ...row, qty: row.qty + 1 } : row));
+      }
+      return [
+        ...prev,
+        {
+          key,
+          menuId: item.id,
+          menuName: item.itemName,
+          categoryName: item.category,
+          variationName,
+          unitPrice,
+          qty: 1,
+        },
+      ];
     });
-  }, []);
+  };
 
-  const increaseQty = useCallback((id: string) => {
-    setCart((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, qty: c.qty + 1 } : c))
-    );
-  }, []);
+  const handleAddClick = (item: ApiMenuItem) => {
+    if (item.hasVariations && item.variations.length > 0) {
+      setVariationPickerFor(item);
+      return;
+    }
+    const price = item.basePrice ?? item.price;
+    addMenuItem(item, null, Number(price));
+  };
 
-  const decreaseQty = useCallback((id: string) => {
+  const adjustQty = (key: string, delta: number) => {
     setCart((prev) =>
       prev
-        .map((c) => (c.id === id ? { ...c, qty: c.qty - 1 } : c))
-        .filter((c) => c.qty > 0)
+        .map((row) => (row.key === key ? { ...row, qty: Math.max(0, row.qty + delta) } : row))
+        .filter((row) => row.qty > 0)
     );
-  }, []);
+  };
 
-  const removeFromCart = useCallback((id: string) => {
-    setCart((prev) => prev.filter((c) => c.id !== id));
-  }, []);
+  const removeRow = (key: string) => {
+    setCart((prev) => prev.filter((row) => row.key !== key));
+  };
 
-  const tables = selectedHall ? mockTablesByHall[selectedHall] ?? [] : [];
+  const subtotal = cart.reduce((sum, row) => sum + row.qty * row.unitPrice, 0);
+
+  const placeOrder = async () => {
+    setError("");
+    setSuccess("");
+    if (!sessionBranchId) return;
+    if (cart.length === 0) {
+      setError("Please add at least one menu item.");
+      return;
+    }
+    if (orderType === "Dine In" && (!selectedHallId || !selectedTableId)) {
+      setError("Please select hall and table for dine in order.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await apiFetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId: sessionBranchId,
+          orderType,
+          hallId: orderType === "Dine In" ? selectedHallId : null,
+          tableId: orderType === "Dine In" ? selectedTableId : null,
+          comments: notes,
+          items: cart.map((row) => ({
+            menuId: row.menuId,
+            menuName: row.menuName,
+            categoryName: row.categoryName,
+            variationName: row.variationName,
+            quantity: row.qty,
+            unitPrice: row.unitPrice,
+          })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to place order");
+      }
+      setCart([]);
+      setNotes("");
+      setSuccess(`Order ${data.orderNo ?? ""} placed successfully.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to place order");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!authorized) {
     return (
@@ -113,64 +228,220 @@ export default function CreateOrderPage() {
   }
 
   return (
-    <DashboardLayout title="Create Order">
-      {/* ── Page heading ── */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Create Order</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Select hall, table, and dishes to create a new order
-        </p>
+    <DashboardLayout title={sessionRole === "ORDER_TAKER" ? "Order Taker POS" : "Create Order"}>
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <select
+            value={orderType}
+            onChange={(e) => {
+              const next = e.target.value as OrderType;
+              setOrderType(next);
+              if (next !== "Dine In") {
+                setSelectedHallId("");
+                setSelectedTableId("");
+              }
+            }}
+            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm"
+          >
+            <option value="Dine In">Dine In</option>
+            <option value="Take Away">Take Away</option>
+            <option value="Delivery">Delivery</option>
+          </select>
+
+          <select
+            value={selectedHallId}
+            onChange={(e) => {
+              setSelectedHallId(e.target.value ? Number(e.target.value) : "");
+              setSelectedTableId("");
+            }}
+            disabled={orderType !== "Dine In"}
+            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm disabled:bg-gray-50"
+          >
+            <option value="">{orderType === "Dine In" ? "Select Hall" : "Hall N/A"}</option>
+            {halls.map((hall) => (
+              <option key={hall.hallId} value={hall.hallId}>
+                {hall.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={selectedTableId}
+            onChange={(e) => setSelectedTableId(e.target.value ? Number(e.target.value) : "")}
+            disabled={orderType !== "Dine In" || !selectedHallId}
+            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm disabled:bg-gray-50"
+          >
+            <option value="">
+              {orderType !== "Dine In" ? "Table N/A" : selectedHallId ? "Select Table" : "Select hall first"}
+            </option>
+            {tables.map((table) => (
+              <option key={table.tableId} value={table.tableId}>
+                {table.name} ({table.status})
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm"
+          >
+            <option value="all">All Categories</option>
+            {categories.map((cat) => (
+              <option key={cat.category_id} value={cat.name}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search menu..."
+              className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm"
+            />
+          </div>
+        </div>
       </div>
 
-      {/* ── Top form (order type / hall / table) ── */}
-      <OrderTopForm
-        orderType={orderType}
-        onOrderTypeChange={handleOrderTypeChange}
-        halls={mockHalls}
-        selectedHall={selectedHall}
-        onHallChange={handleHallChange}
-        tables={tables}
-        selectedTable={selectedTable}
-        onTableChange={setSelectedTable}
-      />
-
-      {/* ── Two-column layout ── */}
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* LEFT — categories + items */}
         <div className="flex-1 min-w-0">
-          {/* Category selector */}
-          <div className="mb-2">
-            <h3 className="text-base font-semibold text-gray-800">
-              Select Category
-            </h3>
-            <p className="text-xs text-gray-400 mt-0.5 mb-3">
-              Browse food categories to add items to the order
-            </p>
-            <CategoryGrid
-              selected={selectedCategory}
-              onSelect={setSelectedCategory}
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {loading ? (
+              <div className="col-span-full bg-white rounded-xl border border-gray-100 p-8 text-center text-sm text-gray-500">
+                Loading menu and seating...
+              </div>
+            ) : visibleItems.length === 0 ? (
+              <div className="col-span-full bg-white rounded-xl border border-gray-100 p-8 text-center text-sm text-gray-500">
+                No active menu items found for selected filters.
+              </div>
+            ) : (
+              visibleItems.map((item) => (
+                <div key={item.id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                  <p className="font-semibold text-gray-800">{item.itemName}</p>
+                  <p className="text-xs text-gray-500 mt-1">{item.category}</p>
+                  <p className="text-sm text-[#ff5a1f] font-bold mt-2">
+                    PKR {Number(item.basePrice ?? item.price).toLocaleString()}
+                  </p>
+                  {item.hasVariations && (
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Variations: {item.variations.map((v) => v.name).join(", ")}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => handleAddClick(item)}
+                    className="mt-3 w-full rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold py-2 hover:bg-[#e04e18]"
+                  >
+                    Add to Order
+                  </button>
+                </div>
+              ))
+            )}
           </div>
-
-          {/* Items panel */}
-          <ItemsPanel
-            selectedCategory={selectedCategory}
-            onAddItem={addToCart}
-          />
         </div>
 
-        {/* RIGHT — cart */}
-        <div className="w-full lg:w-80 xl:w-96 shrink-0">
-          <div className="lg:sticky lg:top-20">
-            <CartPanel
-              items={cart}
-              onIncrease={increaseQty}
-              onDecrease={decreaseQty}
-              onRemove={removeFromCart}
-            />
+        <div className="w-full lg:w-96 shrink-0">
+          <div className="lg:sticky lg:top-20 bg-white rounded-xl border border-gray-100 shadow-sm">
+            <div className="p-4 border-b border-gray-100">
+              <p className="font-semibold text-gray-800">Current Order</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {selectedHall?.name ? `Hall: ${selectedHall.name}` : "Hall: —"} |{" "}
+                {selectedTableId
+                  ? `Table: ${tables.find((t) => t.tableId === selectedTableId)?.name ?? selectedTableId}`
+                  : "Table: —"}
+              </p>
+            </div>
+
+            <div className="max-h-[420px] overflow-y-auto p-3 space-y-2">
+              {cart.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-8">Cart is empty</p>
+              ) : (
+                cart.map((row) => (
+                  <div key={row.key} className="border border-gray-100 rounded-lg p-3">
+                    <p className="text-sm font-medium text-gray-800">{row.menuName}</p>
+                    {row.variationName && (
+                      <p className="text-xs text-gray-500 mt-0.5">Variation: {row.variationName}</p>
+                    )}
+                    <div className="flex items-center justify-between mt-2">
+                      <p className="text-xs text-gray-500">PKR {row.unitPrice.toLocaleString()}</p>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => adjustQty(row.key, -1)} className="p-1 rounded border">
+                          <Minus size={12} />
+                        </button>
+                        <span className="text-sm font-semibold w-6 text-center">{row.qty}</span>
+                        <button onClick={() => adjustQty(row.key, 1)} className="p-1 rounded border">
+                          <Plus size={12} />
+                        </button>
+                        <button
+                          onClick={() => removeRow(row.key)}
+                          className="p-1 rounded text-red-500 border border-red-100"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-100 space-y-3">
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Special notes (optional)"
+                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm"
+                rows={2}
+              />
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Subtotal</span>
+                <span className="font-semibold text-gray-800">PKR {subtotal.toLocaleString()}</span>
+              </div>
+              {error && <p className="text-xs text-red-600">{error}</p>}
+              {success && <p className="text-xs text-green-600">{success}</p>}
+              <button
+                onClick={placeOrder}
+                disabled={saving || cart.length === 0}
+                className="w-full rounded-lg bg-[#ff5a1f] text-white py-2.5 text-sm font-semibold hover:bg-[#e04e18] disabled:opacity-50"
+              >
+                {saving ? "Placing..." : "Place Order"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {variationPickerFor && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setVariationPickerFor(null)} />
+          <div className="relative bg-white rounded-xl border border-gray-100 shadow-xl w-full max-w-md">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <p className="font-semibold text-gray-800">Select Variation</p>
+              <p className="text-sm text-gray-500">{variationPickerFor.itemName}</p>
+            </div>
+            <div className="p-4 space-y-2">
+              {variationPickerFor.variations.map((variation) => (
+                <button
+                  key={variation.id}
+                  onClick={() => {
+                    addMenuItem(variationPickerFor, variation.name, Number(variation.price));
+                    setVariationPickerFor(null);
+                  }}
+                  className="w-full flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5 hover:bg-gray-50 text-sm"
+                >
+                  <span>{variation.name}</span>
+                  <span className="font-semibold text-[#ff5a1f]">
+                    PKR {Number(variation.price).toLocaleString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
+
