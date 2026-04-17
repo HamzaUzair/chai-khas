@@ -36,12 +36,14 @@ interface ExpenseCardListProps {
   expenses: Expense[];
   onEdit: (expense: Expense) => void;
   onDelete: (expense: Expense) => void;
+  canMutate?: boolean;
 }
 
 const ExpenseCardList: React.FC<ExpenseCardListProps> = ({
   expenses,
   onEdit,
   onDelete,
+  canMutate = true,
 }) => {
   return (
     <div className="space-y-3">
@@ -93,22 +95,28 @@ const ExpenseCardList: React.FC<ExpenseCardListProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-2 pt-2.5 border-t border-gray-50">
-            <button
-              onClick={() => onEdit(exp)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-xs font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
-            >
-              <Pencil size={12} />
-              Edit
-            </button>
-            <button
-              onClick={() => onDelete(exp)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs font-semibold hover:bg-red-50 transition-colors cursor-pointer"
-            >
-              <Trash2 size={12} />
-              Delete
-            </button>
-          </div>
+          {canMutate ? (
+            <div className="flex items-center justify-end gap-2 pt-2.5 border-t border-gray-50">
+              <button
+                onClick={() => onEdit(exp)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-xs font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
+              >
+                <Pencil size={12} />
+                Edit
+              </button>
+              <button
+                onClick={() => onDelete(exp)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs font-semibold hover:bg-red-50 transition-colors cursor-pointer"
+              >
+                <Trash2 size={12} />
+                Delete
+              </button>
+            </div>
+          ) : (
+            <p className="text-[11px] text-gray-400 text-right pt-2.5 border-t border-gray-50">
+              View only
+            </p>
+          )}
         </div>
       ))}
     </div>

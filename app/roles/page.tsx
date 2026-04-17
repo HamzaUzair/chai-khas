@@ -400,8 +400,8 @@ export default function RolesPage() {
             ? [{ restaurant_id: session.restaurantId, name: session.restaurantName }]
             : []
         }
-        restaurantLocked={!isHeadOfficeMode}
-        fixedRestaurantId={!isHeadOfficeMode ? session?.restaurantId ?? null : null}
+        restaurantLocked
+        fixedRestaurantId={session?.restaurantId ?? null}
         branchLocked={!isHeadOfficeMode}
         hideBranchFields={!isHeadOfficeMode}
         hideTerminalField={isHeadOfficeMode || isBranchScopedStaffMode}

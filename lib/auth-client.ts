@@ -20,7 +20,6 @@ export const RESTAURANT_ADMIN_ALLOWED_PATHS = new Set([
   "/menu",
   "/deals",
   "/kitchen",
-  "/printers",
   "/orders",
   "/create-order",
   "/sales-list",
@@ -47,7 +46,6 @@ export const BRANCH_ADMIN_ALLOWED_PATHS = new Set([
   "/menu",
   "/deals",
   "/kitchen",
-  "/printers",
   "/orders",
   "/sales-list",
   "/sales-report",
@@ -80,7 +78,7 @@ export function getRestaurantAdminAllowedPaths(
 }
 
 export const STAFF_ALLOWED_PATHS = new Set(["/dashboard"]);
-export const ORDER_TAKER_ALLOWED_PATHS = new Set(["/create-order"]);
+export const ORDER_TAKER_ALLOWED_PATHS = new Set(["/create-order", "/order-deals"]);
 export const LIVE_KITCHEN_ALLOWED_PATHS = new Set(["/kitchen"]);
 export const CASHIER_ALLOWED_PATHS = new Set(["/orders"]);
 
@@ -160,6 +158,18 @@ export function getEffectiveBranchId(session: AuthSession | null): number | "all
     return session.branchId ?? "all";
   }
   return "all";
+}
+
+/** Branch-scoped roles: UI must not offer "All branches" (mirrors server `isBranchScopedRole`). */
+export function isBranchFilterLocked(session: AuthSession | null): boolean {
+  if (!session) return false;
+  return (
+    session.role === "BRANCH_ADMIN" ||
+    session.role === "ORDER_TAKER" ||
+    session.role === "CASHIER" ||
+    session.role === "ACCOUNTANT" ||
+    session.role === "LIVE_KITCHEN"
+  );
 }
 
 export async function apiFetch(

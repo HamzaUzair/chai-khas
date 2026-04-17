@@ -437,7 +437,6 @@ export async function DELETE(
         await tx.table.deleteMany({ where: { branch_id: { in: branchIds } } });
         await tx.hall.deleteMany({ where: { branch_id: { in: branchIds } } });
         await tx.kitchen.deleteMany({ where: { branch_id: { in: branchIds } } });
-        await tx.printer.deleteMany({ where: { branch_id: { in: branchIds } } });
 
         // 6. Finance / operations
         await tx.expense.deleteMany({ where: { branch_id: { in: branchIds } } });

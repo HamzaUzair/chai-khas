@@ -1,4 +1,4 @@
-/* ── Day End Management types ── */
+/* ── Day End Management types (API-aligned) ── */
 
 export type DayEndStatus = "open" | "closed";
 
@@ -8,10 +8,11 @@ export interface DayEndSummary {
   businessDate: string; // YYYY-MM-DD
   status: DayEndStatus;
   openedBy: string;
-  openingTime: string;
-  closingTime?: string;
+  openingTime: string; // HH:mm (first order of the day) or "—"
   closedBy?: string;
-  closedAt?: string;
+  closedAt?: string; // ISO timestamp
+  dayEndId?: number;
+  note?: string;
 }
 
 export interface DayEndStats {
@@ -21,20 +22,24 @@ export interface DayEndStats {
   netRevenue: number;
   averageOrderValue: number;
   cancelledOrders: number;
+  grossSales: number;
+  discounts: number;
+  serviceCharges: number;
 }
 
 export interface PaymentBreakdown {
-  method: string;
+  method: "Cash" | "Card" | "Online" | "Credit";
   amount: number;
+  count: number;
   percentage: number;
 }
 
 export interface ExpenseEntry {
-  id: string;
+  id: number;
   title: string;
   category: string;
   amount: number;
-  createdAt: string;
+  createdAt: string; // ISO
 }
 
 export interface TopSellingItem {
@@ -44,20 +49,33 @@ export interface TopSellingItem {
 }
 
 export interface HourlySales {
-  hour: string;
+  hour: string; // "HH:00"
   orders: number;
   revenue: number;
 }
 
 export interface DayEndRecord {
-  id: string;
-  date: string;
+  id: number;
+  date: string; // YYYY-MM-DD business date
   branchName: string;
   branchId: number;
   totalSales: number;
   totalExpenses: number;
   netRevenue: number;
+  totalOrders: number;
+  cancelledOrders: number;
   status: DayEndStatus;
   closedBy?: string;
-  closedAt?: string;
+  closedAt?: string; // ISO
+  note?: string;
+}
+
+/** Response shape of GET /api/dayend?branchId=&date= */
+export interface DayEndResponse {
+  summary: DayEndSummary;
+  stats: DayEndStats;
+  payments: PaymentBreakdown[];
+  expenses: ExpenseEntry[];
+  topItems: TopSellingItem[];
+  hourlySales: HourlySales[];
 }

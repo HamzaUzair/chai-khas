@@ -3,7 +3,7 @@
 import React from "react";
 import { Search, Building2, Loader2 } from "lucide-react";
 import type { DayEndRecord } from "@/types/dayend";
-import { formatPKR } from "@/lib/dayendData";
+import { formatPKR } from "@/lib/dayendFormat";
 
 interface DayEndHistoryTableProps {
   records: DayEndRecord[];
@@ -81,7 +81,7 @@ const DayEndHistoryTable: React.FC<DayEndHistoryTableProps> = ({
           </thead>
           <tbody className="divide-y divide-gray-50">
             {records.map((r) => (
-              <tr key={r.id} className="hover:bg-gray-50/60 transition-colors">
+              <tr key={String(r.id)} className="hover:bg-gray-50/60 transition-colors">
                 <td className="px-5 py-3.5 font-medium text-gray-800 whitespace-nowrap">
                   {formatDate(r.date)}
                 </td>

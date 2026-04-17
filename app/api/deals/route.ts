@@ -81,7 +81,9 @@ export async function GET(request: NextRequest) {
       branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
     const scope = await buildBranchScopeFilter(auth, requestedBranchId);
     const where: Prisma.DealWhereInput = { ...(scope as Prisma.DealWhereInput) };
-    if (statusParam === "active" || statusParam === "inactive") {
+    if (auth.role === "ORDER_TAKER") {
+      where.status = "Active";
+    } else if (statusParam === "active" || statusParam === "inactive") {
       where.status = statusParam === "active" ? "Active" : "Draft";
     }
     if (searchParam) {

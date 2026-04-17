@@ -3,7 +3,7 @@
 import React from "react";
 import { CreditCard, Banknote, Smartphone } from "lucide-react";
 import type { PaymentBreakdown as PaymentBreakdownType } from "@/types/dayend";
-import { formatPKR } from "@/lib/dayendData";
+import { formatPKR } from "@/lib/dayendFormat";
 
 interface PaymentBreakdownProps {
   payments: PaymentBreakdownType[];

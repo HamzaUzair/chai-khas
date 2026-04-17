@@ -10,7 +10,6 @@ import {
   UtensilsCrossed,
   Tag,
   ChefHat,
-  Printer,
   ClipboardList,
   Receipt,
   BarChart3,
@@ -18,7 +17,6 @@ import {
   Wallet,
   CalendarCheck,
   Grid3X3,
-  Users,
   UserCog,
   ShieldCheck,
   TrendingUp,
@@ -49,7 +47,6 @@ const restaurantAdminMenu: SidebarItem[] = [
   { label: "Menu", icon: <UtensilsCrossed size={20} />, href: "/menu" },
   { label: "Deals", icon: <BadgePercent size={20} />, href: "/deals" },
   { label: "Kitchen", icon: <ChefHat size={20} />, href: "/kitchen" },
-  { label: "Printers", icon: <Printer size={20} />, href: "/printers" },
   { label: "Orders", icon: <ClipboardList size={20} />, href: "/orders" },
   { label: "New Order / POS", icon: <ClipboardList size={20} />, href: "/create-order" },
   { label: "Sales List", icon: <Receipt size={20} />, href: "/sales-list" },
@@ -59,7 +56,6 @@ const restaurantAdminMenu: SidebarItem[] = [
   { label: "Day End", icon: <CalendarCheck size={20} />, href: "/dayend" },
   { label: "Halls", icon: <Grid3X3 size={20} />, href: "/halls" },
   { label: "Roles", icon: <ShieldCheck size={20} />, href: "/roles" },
-  { label: "Customers", icon: <Users size={20} /> },
   { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
 ];
 
@@ -74,7 +70,6 @@ const branchAdminMenu: SidebarItem[] = [
   { label: "Menu", icon: <UtensilsCrossed size={20} />, href: "/menu" },
   { label: "Deals", icon: <BadgePercent size={20} />, href: "/deals" },
   { label: "Kitchen", icon: <ChefHat size={20} />, href: "/kitchen" },
-  { label: "Printers", icon: <Printer size={20} />, href: "/printers" },
   { label: "Orders", icon: <ClipboardList size={20} />, href: "/orders" },
   { label: "Sales List", icon: <Receipt size={20} />, href: "/sales-list" },
   { label: "Sales Report", icon: <BarChart3 size={20} />, href: "/sales-report" },
@@ -83,13 +78,13 @@ const branchAdminMenu: SidebarItem[] = [
   { label: "Day End", icon: <CalendarCheck size={20} />, href: "/dayend" },
   { label: "Halls", icon: <Grid3X3 size={20} />, href: "/halls" },
   { label: "Roles", icon: <ShieldCheck size={20} />, href: "/roles" },
-  { label: "Customers", icon: <Users size={20} /> },
   { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
 ];
 
 /* ══════════════ Order Taker limited menu ══════════════ */
 const orderTakerMenu: SidebarItem[] = [
   { label: "New Order / POS", icon: <ClipboardList size={20} />, href: "/create-order" },
+  { label: "Deals", icon: <BadgePercent size={20} />, href: "/order-deals" },
 ];
 
 const liveKitchenMenu: SidebarItem[] = [
@@ -119,7 +114,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const restaurantAdminMenuForSession =
     role === "RESTAURANT_ADMIN" && session?.restaurantHasMultipleBranches === false
       ? restaurantAdminMenu.filter(
-          (item) => item.href !== "/branches" && item.href !== "/create-order"
+          (item) =>
+            item.href !== "/branches" && item.href !== "/create-order"
         )
       : restaurantAdminMenu;
 

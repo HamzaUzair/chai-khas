@@ -1,12 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { X, AlertTriangle } from "lucide-react";
 
 interface CloseDayModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (note: string) => void;
   closing: boolean;
   branchName: string;
   businessDate: string;
@@ -22,6 +22,10 @@ const CloseDayModal: React.FC<CloseDayModalProps> = ({
   businessDate,
   netRevenue,
 }) => {
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    if (isOpen) setNote("");
+  }, [isOpen]);
   if (!isOpen) return null;
 
   const formatDate = (d: string) => {
@@ -71,10 +75,23 @@ const CloseDayModal: React.FC<CloseDayModalProps> = ({
               PKR {netRevenue.toLocaleString("en-PK")}
             </span>
           </p>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Closing note (optional)
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              disabled={closing}
+              rows={2}
+              placeholder="E.g. cash short by PKR 200, drawer handover done."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all resize-none disabled:opacity-50"
+            />
+          </div>
           <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
             <p className="text-sm text-amber-800">
-              Once the day is closed, the summary is finalized for this branch/date. You will not be
-              able to make changes to this day&apos;s records.
+              Once the day is closed, a day-end record is saved for this branch/date and cannot
+              be re-closed.
             </p>
           </div>
         </div>
@@ -90,7 +107,7 @@ const CloseDayModal: React.FC<CloseDayModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={onConfirm}
+            onClick={() => onConfirm(note)}
             disabled={closing}
             className="px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer disabled:opacity-60"
           >

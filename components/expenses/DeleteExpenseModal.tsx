@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useCallback } from "react";
+import React, { useEffect, useCallback, useState } from "react";
 import { X, AlertTriangle } from "lucide-react";
 import type { Expense } from "@/types/expense";
 
@@ -8,7 +8,7 @@ interface DeleteExpenseModalProps {
   isOpen: boolean;
   expense: Expense | null;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }
 
 const DeleteExpenseModal: React.FC<DeleteExpenseModalProps> = ({
@@ -17,6 +17,8 @@ const DeleteExpenseModal: React.FC<DeleteExpenseModalProps> = ({
   onClose,
   onConfirm,
 }) => {
+  const [busy, setBusy] = useState(false);
+
   const handleKey = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -27,6 +29,10 @@ const DeleteExpenseModal: React.FC<DeleteExpenseModalProps> = ({
     if (isOpen) window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [isOpen, handleKey]);
+
+  useEffect(() => {
+    if (!isOpen) setBusy(false);
+  }, [isOpen]);
 
   if (!isOpen || !expense) return null;
 
@@ -72,10 +78,18 @@ const DeleteExpenseModal: React.FC<DeleteExpenseModalProps> = ({
             Cancel
           </button>
           <button
-            onClick={onConfirm}
-            className="px-5 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors cursor-pointer shadow-sm"
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await Promise.resolve(onConfirm());
+              } finally {
+                setBusy(false);
+              }
+            }}
+            disabled={busy}
+            className="px-5 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Delete
+            {busy ? "Deleting…" : "Delete"}
           </button>
         </div>
       </div>

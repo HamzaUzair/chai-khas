@@ -471,20 +471,6 @@ export async function GET(request: NextRequest) {
       alerts.push({ type: "inventory", message: `${m.name} Stock Low` })
     );
 
-    const offlinePrinters = await prisma.printer.findMany({
-      where: {
-        status: { not: "active" },
-        ...(opScope as Prisma.PrinterWhereInput),
-      },
-      include: { branch: { select: { branch_name: true } } },
-    });
-    offlinePrinters.forEach((p) =>
-      alerts.push({
-        type: "printer",
-        message: `${p.name} Offline — ${p.branch?.branch_name ?? "Unknown"}`,
-      })
-    );
-
     const twentyMinsAgo = new Date(now.getTime() - 20 * 60 * 1000);
     const staleOrders = await prisma.order.count({
       where: {

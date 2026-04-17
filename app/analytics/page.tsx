@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
+  ArrowUpLeft,
   BarChart3,
   BadgePercent,
   Building2,
@@ -221,10 +222,12 @@ export default function AnalyticsPage() {
                     setRestaurantId(null);
                   }
                 }}
-                className="inline-flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                className="inline-flex items-center gap-1.5 border border-[#ff5a1f]/40 text-[#ff5a1f] bg-[#ff5a1f]/5 rounded-lg px-3.5 py-2 text-sm font-semibold hover:bg-[#ff5a1f]/10 transition-colors cursor-pointer"
               >
-                <ArrowLeft size={14} />
-                Back
+                <ArrowLeft size={15} />
+                {branchId && data?.level === "branch" && data.branch.restaurant
+                  ? `Back to ${data.branch.restaurant.name}`
+                  : "Back to Platform"}
               </button>
             )}
             <div className="relative">
@@ -253,12 +256,13 @@ export default function AnalyticsPage() {
               {b.onClick ? (
                 <button
                   onClick={b.onClick}
-                  className="text-[#ff5a1f] hover:underline cursor-pointer"
+                  className="inline-flex items-center gap-1 text-[#ff5a1f] hover:bg-[#ff5a1f]/10 px-2 py-0.5 rounded-md cursor-pointer font-semibold"
+                  title={`Go back to ${b.label}`}
                 >
                   {b.label}
                 </button>
               ) : (
-                <span className="text-gray-700 font-medium">{b.label}</span>
+                <span className="text-gray-700 font-medium px-2">{b.label}</span>
               )}
             </React.Fragment>
           ))}
@@ -286,9 +290,25 @@ export default function AnalyticsPage() {
           data={data}
           canDrillToBranch
           onBranchClick={(bid) => setBranchId(bid)}
+          onDrillUp={
+            role === "SUPER_ADMIN" && restaurantId
+              ? () => setRestaurantId(null)
+              : undefined
+          }
         />
       ) : (
-        <BranchView data={data} />
+        <BranchView
+          data={data}
+          onDrillUpToRestaurant={() => setBranchId(null)}
+          onDrillUpToPlatform={
+            role === "SUPER_ADMIN" && restaurantId
+              ? () => {
+                  setBranchId(null);
+                  setRestaurantId(null);
+                }
+              : undefined
+          }
+        />
       )}
       {currentLevel /* referenced to keep the var used */ ? null : null}
     </DashboardLayout>
@@ -471,13 +491,22 @@ function RestaurantView({
   data,
   canDrillToBranch,
   onBranchClick,
+  onDrillUp,
 }: {
   data: RestaurantResponse;
   canDrillToBranch: boolean;
   onBranchClick: (branchId: number) => void;
+  onDrillUp?: () => void;
 }) {
   return (
     <>
+      {onDrillUp && (
+        <DrillUpBar
+          label="Back to Platform"
+          description={`Viewing ${data.restaurant.name} · ${data.kpis.totalBranches} branches`}
+          onClick={onDrillUp}
+        />
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KpiCard
           label="Total Sales"
@@ -609,9 +638,39 @@ function RestaurantView({
 
 /* ─────────────── Branch view ─────────────── */
 
-function BranchView({ data }: { data: BranchResponse }) {
+function BranchView({
+  data,
+  onDrillUpToRestaurant,
+  onDrillUpToPlatform,
+}: {
+  data: BranchResponse;
+  onDrillUpToRestaurant?: () => void;
+  onDrillUpToPlatform?: () => void;
+}) {
+  const restaurantName = data.branch.restaurant?.name;
   return (
     <>
+      {(onDrillUpToRestaurant || onDrillUpToPlatform) && (
+        <DrillUpBar
+          label={
+            restaurantName && onDrillUpToRestaurant
+              ? `Back to ${restaurantName}`
+              : "Back to Platform"
+          }
+          description={`Viewing ${data.branch.branch_name} (${data.branch.branch_code})`}
+          onClick={onDrillUpToRestaurant ?? onDrillUpToPlatform!}
+          secondaryLabel={
+            onDrillUpToRestaurant && onDrillUpToPlatform
+              ? "Back to Platform"
+              : undefined
+          }
+          onSecondaryClick={
+            onDrillUpToRestaurant && onDrillUpToPlatform
+              ? onDrillUpToPlatform
+              : undefined
+          }
+        />
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         <KpiCard
           label="Sales"
@@ -691,6 +750,51 @@ function BranchView({ data }: { data: BranchResponse }) {
 }
 
 /* ─────────────── Shared ─────────────── */
+
+function DrillUpBar({
+  label,
+  description,
+  onClick,
+  secondaryLabel,
+  onSecondaryClick,
+}: {
+  label: string;
+  description?: string;
+  onClick: () => void;
+  secondaryLabel?: string;
+  onSecondaryClick?: () => void;
+}) {
+  return (
+    <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white rounded-xl border border-[#ff5a1f]/30 shadow-sm px-4 py-3">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#ff5a1f]/10 text-[#ff5a1f] shrink-0">
+          <ArrowUpLeft size={16} />
+        </span>
+        {description && (
+          <p className="text-sm text-gray-600 truncate">{description}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        {secondaryLabel && onSecondaryClick && (
+          <button
+            onClick={onSecondaryClick}
+            className="inline-flex items-center gap-1.5 border border-gray-200 text-gray-700 bg-white rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-gray-50 transition-colors cursor-pointer"
+          >
+            <ArrowLeft size={13} />
+            {secondaryLabel}
+          </button>
+        )}
+        <button
+          onClick={onClick}
+          className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white bg-[#ff5a1f] hover:bg-[#ff4e0e] transition-colors cursor-pointer shadow-sm"
+        >
+          <ArrowLeft size={13} />
+          {label}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function KpiCard({
   label,

@@ -275,10 +275,10 @@ const UserModal: React.FC<UserModalProps> = ({
               Role <span className="text-red-400">*</span>
             </label>
             <select
-              className={`${inputBase} appearance-none cursor-pointer ${errors.role ? "border-red-400" : "border-gray-200"}`}
+              className={`${inputBase} appearance-none ${roleOptions.length === 1 ? "bg-gray-50 cursor-not-allowed" : "cursor-pointer"} ${errors.role ? "border-red-400" : "border-gray-200"}`}
               value={form.role}
               onChange={(e) => setForm((p) => ({ ...p, role: e.target.value as UserRole | "" }))}
-              disabled={branchLocked && roleOptions.length === 1}
+              disabled={roleOptions.length === 1}
             >
               <option value="">Select role</option>
               {roleOptions.map((role) => (

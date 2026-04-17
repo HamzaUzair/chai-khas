@@ -28,56 +28,70 @@ import type {
   TopSellingItem,
   HourlySales as HourlySalesType,
   DayEndRecord,
+  DayEndResponse,
 } from "@/types/dayend";
+import type { AuthSession } from "@/types/auth";
 import {
-  MOCK_DAY_END_SUMMARY,
-  MOCK_DAY_END_STATS,
-  MOCK_PAYMENT_BREAKDOWN,
-  MOCK_EXPENSE_ENTRIES,
-  MOCK_TOP_SELLING_ITEMS,
-  MOCK_HOURLY_SALES,
-  MOCK_DAY_END_HISTORY,
-} from "@/lib/dayendData";
-import { apiFetch } from "@/lib/auth-client";
+  apiFetch,
+  canEditOperational,
+  getAuthSession,
+  isBranchFilterLocked,
+} from "@/lib/auth-client";
 
-/* ── Toast ── */
 interface Toast {
   id: number;
   message: string;
   type: "success" | "info" | "error";
 }
 
+const emptyStats: DayEndStats = {
+  totalOrders: 0,
+  totalRevenue: 0,
+  totalExpenses: 0,
+  netRevenue: 0,
+  averageOrderValue: 0,
+  cancelledOrders: 0,
+  grossSales: 0,
+  discounts: 0,
+  serviceCharges: 0,
+};
+
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function csvEscape(value: string | number): string {
+  const s = String(value);
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
 export default function DayEndPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [session, setSession] = useState<AuthSession | null>(null);
 
-  /* ── Branches ── */
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
 
-  /* ── Day End data (mock — replace with API) ── */
-  const [summary, setSummary] = useState<DayEndSummary>(MOCK_DAY_END_SUMMARY);
-  const [stats, setStats] = useState<DayEndStats>(MOCK_DAY_END_STATS);
-  const [payments, setPayments] = useState<PaymentBreakdownType[]>(MOCK_PAYMENT_BREAKDOWN);
-  const [expenses, setExpenses] = useState<ExpenseEntry[]>(MOCK_EXPENSE_ENTRIES);
-  const [topItems, setTopItems] = useState<TopSellingItem[]>(MOCK_TOP_SELLING_ITEMS);
-  const [hourlySales, setHourlySales] = useState<HourlySalesType[]>(MOCK_HOURLY_SALES);
-  const [history, setHistory] = useState<DayEndRecord[]>(MOCK_DAY_END_HISTORY);
+  const [summary, setSummary] = useState<DayEndSummary | null>(null);
+  const [stats, setStats] = useState<DayEndStats>(emptyStats);
+  const [payments, setPayments] = useState<PaymentBreakdownType[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+  const [topItems, setTopItems] = useState<TopSellingItem[]>([]);
+  const [hourlySales, setHourlySales] = useState<HourlySalesType[]>([]);
+  const [history, setHistory] = useState<DayEndRecord[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
-  /* ── Filters ── */
   const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().slice(0, 10);
-  });
+  const [selectedDate, setSelectedDate] = useState(() => todayISO());
   const [statusFilter, setStatusFilter] = useState<DayEndStatusFilter>("all");
 
-  /* ── Modals ── */
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   const [closing, setClosing] = useState(false);
 
-  /* ── Toasts ── */
   const [toasts, setToasts] = useState<Toast[]>([]);
   const showToast = useCallback((message: string, type: Toast["type"] = "success") => {
     const id = Date.now();
@@ -85,128 +99,243 @@ export default function DayEndPage() {
     setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3000);
   }, []);
 
-  /* ══════════════ Auth guard ══════════════ */
+  const branchLocked = isBranchFilterLocked(session);
+  const canClose = canEditOperational(session);
+
+  /* ── Auth guard ── */
   useEffect(() => {
     if (localStorage.getItem("isAuthenticated") !== "true") {
       router.replace("/login");
-    } else {
-      setAuthorized(true);
+      return;
+    }
+    setAuthorized(true);
+    const s = getAuthSession();
+    setSession(s);
+    if (s && isBranchFilterLocked(s) && s.branchId != null) {
+      setFilterBranchId(s.branchId);
     }
   }, [router]);
 
-  /* ══════════════ Fetch branches ══════════════ */
+  /* ── Fetch branches ── */
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
       const res = await apiFetch("/api/branches");
       if (!res.ok) throw new Error();
       const data: Branch[] = await res.json();
-      setBranches(data.filter((b) => b.status === "Active"));
+      const active = data.filter((b) => b.status === "Active");
+      setBranches(active);
+      // If restaurant admin / super admin with no selection, pick first branch so
+      // the rest of the page has something to show.
+      if (filterBranchId === "all" && !branchLocked && active.length === 1) {
+        setFilterBranchId(active[0].branch_id);
+      }
     } catch {
       // silent
     } finally {
       setBranchesLoading(false);
     }
-  }, []);
+  }, [filterBranchId, branchLocked]);
 
   useEffect(() => {
     if (authorized) fetchBranches();
-  }, [authorized, fetchBranches]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authorized]);
 
-  /* ══════════════ Load day end data (mock — replace with API) ══════════════ */
-  const loadDayEndData = useCallback(() => {
-    setDataLoading(true);
-    // Simulate API: fetch(`/api/dayend?branch_id=${branchId}&date=${date}`)
-    setTimeout(() => {
-      const branchId = filterBranchId === "all" ? branches[0]?.branch_id : filterBranchId;
-      const branch = branches.find((b) => b.branch_id === branchId);
-      if (branch) {
-        setSummary({
-          ...MOCK_DAY_END_SUMMARY,
-          branchId: branch.branch_id,
-          branchName: branch.branch_name,
-          businessDate: selectedDate,
-        });
-      }
-      setStats(MOCK_DAY_END_STATS);
-      setPayments(MOCK_PAYMENT_BREAKDOWN);
-      setExpenses(MOCK_EXPENSE_ENTRIES);
-      setTopItems(MOCK_TOP_SELLING_ITEMS);
-      setHourlySales(MOCK_HOURLY_SALES);
+  /* ── Effective branch: for "all" (super/restaurant admin) fall back to first. ── */
+  const effectiveBranchId = useMemo<number | null>(() => {
+    if (filterBranchId !== "all") return filterBranchId;
+    return branches[0]?.branch_id ?? null;
+  }, [filterBranchId, branches]);
+
+  /* ── Load day end data for selected branch + date ── */
+  const loadDayEndData = useCallback(async () => {
+    if (!effectiveBranchId) {
       setDataLoading(false);
-    }, 400);
-  }, [filterBranchId, selectedDate, branches]);
+      return;
+    }
+    setDataLoading(true);
+    try {
+      const qs = new URLSearchParams({
+        branchId: String(effectiveBranchId),
+        date: selectedDate,
+      });
+      const res = await apiFetch(`/api/dayend?${qs.toString()}`);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        showToast(typeof j.error === "string" ? j.error : "Failed to load day end data", "error");
+        setSummary(null);
+        setStats(emptyStats);
+        setPayments([]);
+        setExpenses([]);
+        setTopItems([]);
+        setHourlySales([]);
+        return;
+      }
+      const data = (await res.json()) as DayEndResponse;
+      setSummary(data.summary);
+      setStats(data.stats);
+      setPayments(data.payments);
+      setExpenses(data.expenses);
+      setTopItems(data.topItems);
+      setHourlySales(data.hourlySales);
+    } catch {
+      showToast("Failed to load day end data", "error");
+    } finally {
+      setDataLoading(false);
+    }
+  }, [effectiveBranchId, selectedDate, showToast]);
 
   useEffect(() => {
     if (!authorized || branchesLoading) return;
-    loadDayEndData();
+    void loadDayEndData();
   }, [authorized, branchesLoading, loadDayEndData]);
 
-  /* ══════════════ Filtered history ══════════════ */
-  const filteredHistory = useMemo(() => {
-    let result = history;
-    if (filterBranchId !== "all") {
-      result = result.filter((r) => r.branchId === filterBranchId);
+  /* ── Load history ── */
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      if (filterBranchId !== "all") qs.set("branchId", String(filterBranchId));
+      qs.set("limit", "50");
+      const res = await apiFetch(`/api/dayend/history?${qs.toString()}`);
+      if (!res.ok) {
+        setHistory([]);
+        return;
+      }
+      const data = await res.json();
+      setHistory(Array.isArray(data.records) ? (data.records as DayEndRecord[]) : []);
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
     }
-    if (statusFilter !== "all") {
-      result = result.filter((r) => r.status === statusFilter);
-    }
-    return result;
-  }, [history, filterBranchId, statusFilter]);
+  }, [filterBranchId]);
 
-  /* ══════════════ Handlers ══════════════ */
+  useEffect(() => {
+    if (!authorized) return;
+    void loadHistory();
+  }, [authorized, loadHistory]);
+
+  /* ── Filtered history (status pill is client-side since all stored rows are "closed") ── */
+  const filteredHistory = useMemo(() => {
+    if (statusFilter === "all" || statusFilter === "closed") return history;
+    // No "open" records are persisted yet, so filter yields nothing.
+    return history.filter((r) => r.status === "open");
+  }, [history, statusFilter]);
+
+  /* ── Handlers ── */
   const handleCloseDay = () => {
     setCloseModalOpen(true);
   };
 
-  const handleCloseDayConfirm = () => {
+  const handleCloseDayConfirm = async (note: string) => {
+    if (!effectiveBranchId) {
+      showToast("Select a branch first", "error");
+      return;
+    }
     setClosing(true);
-    // Mock: update summary to closed
-    setTimeout(() => {
-      setSummary((p) => ({
-        ...p,
-        status: "closed",
-        closedBy: "Admin",
-        closedAt: new Date().toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" }),
-      }));
-      setClosing(false);
-      setCloseModalOpen(false);
-      showToast("Day closed successfully", "success");
-      // Add to history
-      setHistory((prev) => [
-        {
-          id: `de-${Date.now()}`,
+    try {
+      const res = await apiFetch("/api/dayend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId: effectiveBranchId,
           date: selectedDate,
-          branchName: summary.branchName,
-          branchId: summary.branchId,
-          totalSales: stats.totalRevenue,
-          totalExpenses: stats.totalExpenses,
-          netRevenue: stats.netRevenue,
-          status: "closed",
-          closedBy: "Admin",
-          closedAt: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
-    }, 600);
+          note: note.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        showToast(typeof j.error === "string" ? j.error : "Failed to close day", "error");
+        return;
+      }
+      showToast("Day closed successfully", "success");
+      setCloseModalOpen(false);
+      await Promise.all([loadDayEndData(), loadHistory()]);
+    } catch {
+      showToast("Failed to close day", "error");
+    } finally {
+      setClosing(false);
+    }
   };
 
   const handleExportReport = () => {
-    showToast("Export feature coming soon", "info");
+    if (!summary) {
+      showToast("Nothing to export yet", "info");
+      return;
+    }
+    const lines: string[] = [];
+    lines.push(`Day End Report`);
+    lines.push(
+      `Branch,${csvEscape(summary.branchName)},Business Date,${csvEscape(summary.businessDate)}`
+    );
+    lines.push(`Status,${csvEscape(summary.status)}`);
+    if (summary.closedBy) lines.push(`Closed By,${csvEscape(summary.closedBy)}`);
+    if (summary.closedAt) lines.push(`Closed At,${csvEscape(summary.closedAt)}`);
+    lines.push("");
+    lines.push("Summary");
+    lines.push(`Total Orders,${stats.totalOrders}`);
+    lines.push(`Gross Sales,${stats.grossSales}`);
+    lines.push(`Discounts,${stats.discounts}`);
+    lines.push(`Service Charges,${stats.serviceCharges}`);
+    lines.push(`Total Revenue,${stats.totalRevenue}`);
+    lines.push(`Total Expenses,${stats.totalExpenses}`);
+    lines.push(`Net Revenue,${stats.netRevenue}`);
+    lines.push(`Avg Order Value,${stats.averageOrderValue}`);
+    lines.push(`Cancelled Orders,${stats.cancelledOrders}`);
+    lines.push("");
+    lines.push("Payment Method,Amount,Count,Percentage");
+    for (const p of payments) {
+      lines.push(`${csvEscape(p.method)},${p.amount},${p.count},${p.percentage.toFixed(2)}`);
+    }
+    lines.push("");
+    lines.push("Expenses");
+    lines.push("Title,Category,Amount,Time");
+    for (const e of expenses) {
+      lines.push(`${csvEscape(e.title)},${csvEscape(e.category)},${e.amount},${csvEscape(e.createdAt)}`);
+    }
+    lines.push("");
+    lines.push("Top Selling Items");
+    lines.push("Name,Quantity,Revenue");
+    for (const t of topItems) {
+      lines.push(`${csvEscape(t.name)},${t.quantity},${t.revenue}`);
+    }
+    lines.push("");
+    lines.push("Hourly Sales");
+    lines.push("Hour,Orders,Revenue");
+    for (const h of hourlySales) {
+      lines.push(`${csvEscape(h.hour)},${h.orders},${h.revenue}`);
+    }
+
+    const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `dayend_${summary.branchName.replace(/\s+/g, "_")}_${summary.businessDate}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast("Report exported", "success");
   };
 
   const handleViewHistory = (record: DayEndRecord) => {
-    setFilterBranchId(record.branchId);
+    if (!branchLocked) setFilterBranchId(record.branchId);
     setSelectedDate(record.date);
-    showToast(`Viewing ${record.branchName} - ${record.date}`, "info");
+    showToast(`Viewing ${record.branchName} – ${record.date}`, "info");
   };
 
-  const effectiveBranchId = filterBranchId === "all" ? branches[0]?.branch_id : filterBranchId;
-  const hasBranch = !!effectiveBranchId;
-  const isDayClosed = summary.status === "closed";
+  const handleRefresh = () => {
+    void Promise.all([loadDayEndData(), loadHistory()]);
+    showToast("Refreshed", "info");
+  };
+
+  const hasBranch = !!effectiveBranchId && !!summary;
+  const isDayClosed = summary?.status === "closed";
   const maxHourlyRevenue = Math.max(...hourlySales.map((h) => h.revenue), 1);
 
-  /* ══════════════ Loading ══════════════ */
+  /* ── Loading ── */
   if (!authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -217,7 +346,7 @@ export default function DayEndPage() {
 
   return (
     <DashboardLayout title="Day End">
-      {/* ── Header Card ── */}
+      {/* Header Card */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -228,7 +357,7 @@ export default function DayEndPage() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={loadDayEndData}
+              onClick={handleRefresh}
               disabled={dataLoading}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-50"
             >
@@ -237,24 +366,27 @@ export default function DayEndPage() {
             </button>
             <button
               onClick={handleExportReport}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors cursor-pointer"
+              disabled={!hasBranch}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-50"
             >
               <Download size={16} />
               Export Report
             </button>
-            <button
-              onClick={handleCloseDay}
-              disabled={!hasBranch || isDayClosed || dataLoading}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CalendarCheck size={18} />
-              {isDayClosed ? "Day Already Closed" : "Close Day"}
-            </button>
+            {canClose && (
+              <button
+                onClick={handleCloseDay}
+                disabled={!hasBranch || isDayClosed || dataLoading}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CalendarCheck size={18} />
+                {isDayClosed ? "Day Already Closed" : "Close Day"}
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ── Toolbar ── */}
+      {/* Toolbar */}
       <DayEndToolbar
         branches={branches}
         branchesLoading={branchesLoading}
@@ -264,31 +396,29 @@ export default function DayEndPage() {
         onDateChange={setSelectedDate}
         statusFilter={statusFilter}
         onStatusChange={setStatusFilter}
+        branchLocked={branchLocked}
       />
 
-      {/* ── Main content ── */}
+      {/* Main content */}
       {dataLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="text-[#ff5a1f] animate-spin" />
         </div>
-      ) : !hasBranch ? (
+      ) : !hasBranch || !summary ? (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center">
           <CalendarCheck size={48} className="text-gray-300 mx-auto mb-4" />
           <p className="text-gray-500">Select a branch to view day end summary</p>
         </div>
       ) : (
         <>
-          {/* Day Status */}
           <div className="mb-6">
             <DayStatusCard summary={summary} />
           </div>
 
-          {/* Summary Stats */}
           <div className="mb-6">
             <SummaryStats stats={stats} />
           </div>
 
-          {/* Payment + Expense + Net row */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <PaymentBreakdown payments={payments} />
             <ExpenseSummary totalExpenses={stats.totalExpenses} expenses={expenses} />
@@ -299,35 +429,35 @@ export default function DayEndPage() {
             />
           </div>
 
-          {/* Top Items + Hourly */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <TopSellingItems items={topItems} />
             <HourlySales data={hourlySales} maxRevenue={maxHourlyRevenue} />
           </div>
 
-          {/* History */}
           <div className="mb-6">
             <DayEndHistoryTable
               records={filteredHistory}
-              loading={false}
+              loading={historyLoading}
               onView={handleViewHistory}
             />
           </div>
         </>
       )}
 
-      {/* ── Close Day Modal ── */}
-      <CloseDayModal
-        isOpen={closeModalOpen}
-        onClose={() => setCloseModalOpen(false)}
-        onConfirm={handleCloseDayConfirm}
-        closing={closing}
-        branchName={summary.branchName}
-        businessDate={summary.businessDate}
-        netRevenue={stats.netRevenue}
-      />
+      {/* Close Day Modal */}
+      {summary && (
+        <CloseDayModal
+          isOpen={closeModalOpen}
+          onClose={() => setCloseModalOpen(false)}
+          onConfirm={handleCloseDayConfirm}
+          closing={closing}
+          branchName={summary.branchName}
+          businessDate={summary.businessDate}
+          netRevenue={stats.netRevenue}
+        />
+      )}
 
-      {/* ── Toasts ── */}
+      {/* Toasts */}
       <div className="fixed bottom-4 right-4 z-[120] flex flex-col gap-2">
         {toasts.map((t) => (
           <div

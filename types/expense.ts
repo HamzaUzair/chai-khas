@@ -31,26 +31,35 @@ export interface Expense {
   id: number;
   title: string;
   description: string;
-  category: ExpenseCategory;
+  /** Resolved from `ExpenseCategory.name` in DB */
+  category: string;
   branchId: number;
   branchName: string;
   amount: number;
   paymentMethod: ExpensePaymentMethod;
   date: string; // YYYY-MM-DD
   addedBy: string;
-  status: "Active" | "Inactive";
   createdAt: number; // epoch ms
+}
+
+/** Aggregates from GET /api/expenses (scope = structural filters; filtered = + search) */
+export interface ExpenseListStats {
+  scopeCount: number;
+  scopeSum: number;
+  filteredCount: number;
+  filteredSum: number;
+  filteredAvg: number;
 }
 
 export interface ExpenseFormData {
   title: string;
   description: string;
-  category: ExpenseCategory | "";
+  /** Must match an `ExpenseCategory` name for API validation */
+  category: string;
   branchId: number | "";
   amount: string; // string for input
   paymentMethod: ExpensePaymentMethod | "";
   date: string;
-  status: "Active" | "Inactive";
 }
 
 export interface ExpenseBranch {

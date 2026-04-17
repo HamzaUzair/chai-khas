@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   PlusCircle,
@@ -17,60 +17,81 @@ import ExpenseTable from "@/components/expenses/ExpenseTable";
 import ExpenseCardList from "@/components/expenses/ExpenseCardList";
 import ExpenseModal from "@/components/expenses/ExpenseModal";
 import DeleteExpenseModal from "@/components/expenses/DeleteExpenseModal";
-import type { Expense, ExpenseFormData, ExpenseBranch } from "@/types/expense";
+import type {
+  Expense,
+  ExpenseFormData,
+  ExpenseBranch,
+  ExpenseCategory,
+  ExpensePaymentMethod,
+  ExpenseListStats,
+} from "@/types/expense";
 import type { Branch } from "@/types/branch";
-import { generateMockExpenses, nextExpenseId } from "@/lib/expensesData";
-import { apiFetch } from "@/lib/auth-client";
+import type { AuthSession } from "@/types/auth";
+import {
+  apiFetch,
+  canEditOperational,
+  getAuthSession,
+  isBranchFilterLocked,
+} from "@/lib/auth-client";
 
-/* ═══════════ localStorage persistence ═══════════ */
-const LS_KEY = "pos_expenses";
+const emptyStats: ExpenseListStats = {
+  scopeCount: 0,
+  scopeSum: 0,
+  filteredCount: 0,
+  filteredSum: 0,
+  filteredAvg: 0,
+};
 
-function loadExpenses(): Expense[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveExpenses(data: Expense[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(LS_KEY, JSON.stringify(data));
-}
-
-/* ═══════════ Toast helper type ═══════════ */
 interface Toast {
   id: number;
   message: string;
   type: "success" | "error" | "info";
 }
 
-/* ═══════════ Page component ═══════════ */
+function buildExpensesQuery(params: {
+  branchId: number | "all";
+  category: ExpenseCategory | "all";
+  paymentMethod: ExpensePaymentMethod | "all";
+  dateFrom: string;
+  dateTo: string;
+  search: string;
+}): string {
+  const p = new URLSearchParams();
+  if (params.branchId !== "all") {
+    p.set("branchId", String(params.branchId));
+  }
+  if (params.category !== "all") p.set("category", params.category);
+  if (params.paymentMethod !== "all") p.set("paymentMethod", params.paymentMethod);
+  if (params.dateFrom.trim()) p.set("dateFrom", params.dateFrom.trim());
+  if (params.dateTo.trim()) p.set("dateTo", params.dateTo.trim());
+  if (params.search.trim()) p.set("search", params.search.trim());
+  return p.toString();
+}
+
 export default function ExpensesPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [session, setSession] = useState<AuthSession | null>(null);
 
-  /* ── Branches ── */
   const [branches, setBranches] = useState<ExpenseBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
 
-  /* ── Expenses ── */
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [stats, setStats] = useState<ExpenseListStats>(emptyStats);
   const [dataLoading, setDataLoading] = useState(true);
 
-  /* ── Filters ── */
   const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
   const [search, setSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState<ExpenseCategory | "all">("all");
+  const [filterPayment, setFilterPayment] = useState<ExpensePaymentMethod | "all">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  /* ── Modals ── */
   const [addEditOpen, setAddEditOpen] = useState(false);
   const [editExpense, setEditExpense] = useState<Expense | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteExpense, setDeleteExpense] = useState<Expense | null>(null);
 
-  /* ── Toasts ── */
   const [toasts, setToasts] = useState<Toast[]>([]);
   const pushToast = useCallback(
     (message: string, type: "success" | "error" | "info" = "success") => {
@@ -81,16 +102,22 @@ export default function ExpensesPage() {
     []
   );
 
-  /* ══════════════ Auth guard ══════════════ */
+  const branchLocked = isBranchFilterLocked(session);
+  const canMutate = canEditOperational(session);
+
   useEffect(() => {
     if (localStorage.getItem("isAuthenticated") !== "true") {
       router.replace("/login");
     } else {
       setAuthorized(true);
+      const s = getAuthSession();
+      setSession(s);
+      if (s && isBranchFilterLocked(s) && s.branchId != null) {
+        setFilterBranchId(s.branchId);
+      }
     }
   }, [router]);
 
-  /* ══════════════ Fetch branches ══════════════ */
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
@@ -112,61 +139,61 @@ export default function ExpensesPage() {
     if (authorized) fetchBranches();
   }, [authorized, fetchBranches]);
 
-  /* ══════════════ Load / generate mock expenses ══════════════ */
+  const fetchExpenses = useCallback(async () => {
+    setDataLoading(true);
+    try {
+      const qs = buildExpensesQuery({
+        branchId: filterBranchId,
+        category: filterCategory,
+        paymentMethod: filterPayment,
+        dateFrom,
+        dateTo,
+        search,
+      });
+      const res = await apiFetch(`/api/expenses?${qs}`);
+      if (!res.ok) {
+        let msg = "Failed to load expenses";
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+        } catch {
+          /* ignore */
+        }
+        pushToast(msg, "error");
+        setExpenses([]);
+        setStats(emptyStats);
+        return;
+      }
+      const data = await res.json();
+      setExpenses(data.expenses ?? []);
+      setStats(data.stats ?? emptyStats);
+    } catch {
+      pushToast("Failed to load expenses", "error");
+      setExpenses([]);
+      setStats(emptyStats);
+    } finally {
+      setDataLoading(false);
+    }
+  }, [
+    filterBranchId,
+    filterCategory,
+    filterPayment,
+    dateFrom,
+    dateTo,
+    search,
+    pushToast,
+  ]);
+
   useEffect(() => {
-    if (!authorized || branchesLoading) return;
-
-    let stored = loadExpenses();
-    if (stored.length === 0 && branches.length > 0) {
-      stored = generateMockExpenses(branches);
-      saveExpenses(stored);
-    }
-    setExpenses(stored);
-    setDataLoading(false);
-  }, [authorized, branchesLoading, branches]);
-
-  /* ── Persist helper ── */
-  const persist = useCallback((updated: Expense[]) => {
-    setExpenses(updated);
-    saveExpenses(updated);
-  }, []);
-
-  /* ══════════════ Filtered expenses ══════════════ */
-  const filtered = useMemo(() => {
-    let list = [...expenses];
-
-    if (filterBranchId !== "all") {
-      list = list.filter((e) => e.branchId === filterBranchId);
-    }
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (e) =>
-          String(e.id).includes(q) ||
-          e.title.toLowerCase().includes(q) ||
-          e.description.toLowerCase().includes(q) ||
-          e.branchName.toLowerCase().includes(q) ||
-          e.category.toLowerCase().includes(q)
-      );
-    }
-
-    return list;
-  }, [expenses, filterBranchId, search]);
-
-  /* ══════════════ Handlers ══════════════ */
+    if (!authorized) return;
+    void fetchExpenses();
+  }, [authorized, fetchExpenses]);
 
   const handleRefresh = () => {
-    setDataLoading(true);
-    setTimeout(() => {
-      const stored = loadExpenses();
-      setExpenses(stored);
-      setDataLoading(false);
-      pushToast("Expenses refreshed!", "info");
-    }, 300);
+    void fetchExpenses();
+    pushToast("Expenses refreshed.", "info");
   };
 
-  /* ── Add / Edit ── */
   const openAdd = () => {
     setEditExpense(null);
     setAddEditOpen(true);
@@ -177,69 +204,92 @@ export default function ExpensesPage() {
     setAddEditOpen(true);
   };
 
-  const handleSubmit = (data: ExpenseFormData) => {
-    const branch = branches.find((b) => b.id === Number(data.branchId));
-    if (!branch) return;
+  const handleSubmitExpense = async (data: ExpenseFormData) => {
+    const branchId = Number(data.branchId);
+    const payload = {
+      title: data.title.trim(),
+      description: data.description.trim(),
+      category: data.category.trim(),
+      branchId,
+      amount: Number(data.amount),
+      paymentMethod: data.paymentMethod,
+      date: data.date,
+    };
 
-    if (editExpense) {
-      // Update
-      const updated = expenses.map((e) =>
-        e.id === editExpense.id
-          ? {
-              ...e,
-              title: data.title,
-              description: data.description,
-              category: data.category as Expense["category"],
-              branchId: branch.id,
-              branchName: branch.name,
-              amount: Number(data.amount),
-              paymentMethod: data.paymentMethod as Expense["paymentMethod"],
-              date: data.date,
-              status: data.status,
-            }
-          : e
-      );
-      persist(updated);
-      pushToast("Expense updated successfully!", "success");
-    } else {
-      // Create
-      const newExp: Expense = {
-        id: nextExpenseId(expenses),
-        title: data.title,
-        description: data.description,
-        category: data.category as Expense["category"],
-        branchId: branch.id,
-        branchName: branch.name,
-        amount: Number(data.amount),
-        paymentMethod: data.paymentMethod as Expense["paymentMethod"],
-        date: data.date,
-        addedBy: "Admin",
-        status: data.status,
-        createdAt: Date.now(),
-      };
-      persist([newExp, ...expenses]);
-      pushToast("Expense created successfully!", "success");
+    try {
+      if (editExpense) {
+        const res = await apiFetch(`/api/expenses/${editExpense.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          pushToast(typeof j.error === "string" ? j.error : "Could not update expense", "error");
+          return;
+        }
+        pushToast("Expense updated successfully!", "success");
+      } else {
+        const res = await apiFetch("/api/expenses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          pushToast(typeof j.error === "string" ? j.error : "Could not create expense", "error");
+          return;
+        }
+        pushToast("Expense created successfully!", "success");
+      }
+      setAddEditOpen(false);
+      setEditExpense(null);
+      await fetchExpenses();
+    } catch {
+      pushToast("Request failed", "error");
     }
-
-    setAddEditOpen(false);
-    setEditExpense(null);
   };
 
-  /* ── Delete ── */
   const openDelete = (exp: Expense) => {
     setDeleteExpense(exp);
     setDeleteOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteExpense) return;
-    persist(expenses.filter((e) => e.id !== deleteExpense.id));
-    pushToast("Expense deleted.", "success");
-    setDeleteOpen(false);
-    setDeleteExpense(null);
+    try {
+      const res = await apiFetch(`/api/expenses/${deleteExpense.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        pushToast(typeof j.error === "string" ? j.error : "Could not delete expense", "error");
+        return;
+      }
+      pushToast("Expense deleted.", "success");
+      setDeleteOpen(false);
+      setDeleteExpense(null);
+      await fetchExpenses();
+    } catch {
+      pushToast("Request failed", "error");
+    }
   };
 
-  /* ══════════════ Auth spinner ══════════════ */
+  const filtersActive =
+    filterBranchId !== "all" ||
+    filterCategory !== "all" ||
+    filterPayment !== "all" ||
+    dateFrom.trim() !== "" ||
+    dateTo.trim() !== "" ||
+    search.trim() !== "";
+
+  const clearFilters = () => {
+    if (!branchLocked) setFilterBranchId("all");
+    setFilterCategory("all");
+    setFilterPayment("all");
+    setDateFrom("");
+    setDateTo("");
+    setSearch("");
+  };
+
   if (!authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -250,7 +300,6 @@ export default function ExpensesPage() {
 
   return (
     <DashboardLayout title="Expenses">
-      {/* ── Page header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#ff5a1f]/10 flex items-center justify-center">
@@ -274,7 +323,7 @@ export default function ExpensesPage() {
           </button>
           <button
             onClick={openAdd}
-            disabled={branches.length === 0}
+            disabled={branches.length === 0 || !canMutate}
             className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <PlusCircle size={15} />
@@ -283,7 +332,14 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      {/* ── No branches warning ── */}
+      {session && !canMutate && (
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3.5 mb-6 text-sm text-slate-700">
+          <AlertTriangle size={16} className="shrink-0 text-amber-500" />
+          Restaurant Admin is view-only for multi-branch restaurants. Branch Admins can add or edit
+          expenses for their branch.
+        </div>
+      )}
+
       {!branchesLoading && branches.length === 0 && (
         <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3.5 mb-6 text-sm text-amber-700">
           <AlertTriangle size={16} className="shrink-0" />
@@ -291,24 +347,31 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      {/* ── Filters ── */}
       <ExpenseFilters
         branches={branches}
         branchesLoading={branchesLoading}
         branchId={filterBranchId}
         onBranchChange={setFilterBranchId}
+        branchLocked={branchLocked}
         search={search}
         onSearchChange={setSearch}
+        category={filterCategory}
+        onCategoryChange={setFilterCategory}
+        paymentMethod={filterPayment}
+        onPaymentMethodChange={setFilterPayment}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
       />
 
-      {/* ── Summary cards ── */}
-      <ExpenseSummaryCards allExpenses={expenses} filteredExpenses={filtered} />
+      <ExpenseSummaryCards stats={stats} />
 
-      {/* ── Info line ── */}
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-gray-400">
-          Showing <span className="font-semibold text-gray-600">{filtered.length}</span>{" "}
-          {filtered.length === 1 ? "expense" : "expenses"}
+          Showing{" "}
+          <span className="font-semibold text-gray-600">{stats.filteredCount}</span>{" "}
+          {stats.filteredCount === 1 ? "expense" : "expenses"}
           {filterBranchId !== "all" && (
             <>
               {" "}
@@ -326,12 +389,9 @@ export default function ExpensesPage() {
             </>
           )}
         </p>
-        {(filterBranchId !== "all" || search.trim()) && (
+        {filtersActive && (
           <button
-            onClick={() => {
-              setFilterBranchId("all");
-              setSearch("");
-            }}
+            onClick={clearFilters}
             className="inline-flex items-center gap-1 text-xs text-[#ff5a1f] font-semibold hover:underline cursor-pointer"
           >
             <XCircle size={13} />
@@ -340,8 +400,7 @@ export default function ExpensesPage() {
         )}
       </div>
 
-      {/* ── Empty state ── */}
-      {!dataLoading && filtered.length === 0 ? (
+      {!dataLoading && stats.filteredCount === 0 ? (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-6 py-16 flex flex-col items-center gap-4">
           <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
             <Wallet size={28} className="text-gray-400" />
@@ -349,12 +408,12 @@ export default function ExpensesPage() {
           <div className="text-center">
             <p className="text-lg font-bold text-gray-700 mb-1">No expenses found</p>
             <p className="text-sm text-gray-400">
-              {expenses.length > 0
+              {stats.scopeCount > 0
                 ? "Try adjusting your filters or search term."
-                : "Click \"Add Expense\" to create your first entry."}
+                : 'Click "Add Expense" to create your first entry.'}
             </p>
           </div>
-          {expenses.length === 0 && branches.length > 0 && (
+          {stats.scopeCount === 0 && branches.length > 0 && canMutate && (
             <button
               onClick={openAdd}
               className="mt-2 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors shadow-sm cursor-pointer"
@@ -366,16 +425,15 @@ export default function ExpensesPage() {
         </div>
       ) : (
         <>
-          {/* Desktop table */}
           <div className="hidden md:block">
             <ExpenseTable
-              expenses={filtered}
+              expenses={expenses}
               loading={dataLoading}
               onEdit={openEdit}
               onDelete={openDelete}
+              canMutate={canMutate}
             />
           </div>
-          {/* Mobile card list */}
           <div className="block md:hidden">
             {dataLoading ? (
               <div className="flex items-center justify-center py-16">
@@ -383,29 +441,29 @@ export default function ExpensesPage() {
               </div>
             ) : (
               <ExpenseCardList
-                expenses={filtered}
+                expenses={expenses}
                 onEdit={openEdit}
                 onDelete={openDelete}
+                canMutate={canMutate}
               />
             )}
           </div>
         </>
       )}
 
-      {/* ── Add/Edit modal ── */}
       <ExpenseModal
         isOpen={addEditOpen}
         onClose={() => {
           setAddEditOpen(false);
           setEditExpense(null);
         }}
-        onSubmit={handleSubmit}
+        onSubmit={handleSubmitExpense}
         editExpense={editExpense}
         branches={branches}
         branchesLoading={branchesLoading}
+        branchLocked={branchLocked}
       />
 
-      {/* ── Delete modal ── */}
       <DeleteExpenseModal
         isOpen={deleteOpen}
         expense={deleteExpense}
@@ -416,7 +474,6 @@ export default function ExpensesPage() {
         onConfirm={confirmDelete}
       />
 
-      {/* ── Toasts ── */}
       <div className="fixed bottom-4 right-4 z-[120] flex flex-col gap-2">
         {toasts.map((t) => (
           <div

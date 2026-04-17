@@ -17,6 +17,11 @@ type CreateOrderItem = {
   unitPrice?: number | string;
 };
 
+type CreateOrderDeal = {
+  dealId?: number | string;
+  quantity?: number | string;
+};
+
 const DISCOUNT_META_TAG = "[DISCOUNT_META]";
 const BILLING_META_TAG = "[BILLING_META]";
 
@@ -101,6 +106,56 @@ function parseBillingMeta(rawComments: string | null | undefined): {
 function toNumber(value: number | string | null | undefined, fallback = 0) {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   return Number.isNaN(n) ? fallback : n;
+}
+
+async function ensureDealBundleDish(
+  tx: Prisma.TransactionClient,
+  branchId: number,
+  dealName: string
+) {
+  const tagName = `Deal: ${dealName.trim()}`;
+  const existing = await tx.menuItem.findFirst({
+    where: { branch_id: branchId, name: tagName },
+    select: { dish_id: true },
+  });
+  if (existing) return existing.dish_id;
+
+  let category = await tx.category.findFirst({
+    where: {
+      branch_id: branchId,
+      name: { equals: "Deals", mode: "insensitive" },
+    },
+    select: { category_id: true },
+  });
+  if (!category) {
+    category = await tx.category.create({
+      data: {
+        name: "Deals",
+        branch_id: branchId,
+        terminal: 1,
+        kid: 0,
+      },
+      select: { category_id: true },
+    });
+  }
+
+  const created = await tx.menuItem.create({
+    data: {
+      name: tagName,
+      description: null,
+      price: 0,
+      category_id: category.category_id,
+      branch_id: branchId,
+      is_available: 1,
+      terminal: 1,
+      qnty: 0,
+      is_frequent: 0,
+      discount: 0,
+      status: "ACTIVE",
+    },
+    select: { dish_id: true },
+  });
+  return created.dish_id;
 }
 
 async function findOrCreateDishForMenuItem({
@@ -332,6 +387,7 @@ export async function POST(request: NextRequest) {
     const tableId = body.tableId ? Number(body.tableId) : null;
     const branchId = Number(body.branchId ?? auth.branchId);
     const rows = Array.isArray(body.items) ? (body.items as CreateOrderItem[]) : [];
+    const dealRowsRaw = Array.isArray(body.deals) ? (body.deals as CreateOrderDeal[]) : [];
 
     if (!branchId || Number.isNaN(branchId)) {
       return NextResponse.json({ error: "Branch is required" }, { status: 400 });
@@ -346,8 +402,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Branch not found" }, { status: 404 });
     }
 
-    if (rows.length === 0) {
-      return NextResponse.json({ error: "At least one order item is required" }, { status: 400 });
+    const parsedDeals = dealRowsRaw
+      .map((d) => ({
+        dealId: Number(d.dealId),
+        quantity: Math.max(1, toNumber(d.quantity, 1)),
+      }))
+      .filter((d) => Number.isFinite(d.dealId) && d.dealId > 0);
+
+    if (rows.length === 0 && parsedDeals.length === 0) {
+      return NextResponse.json(
+        { error: "At least one menu item or deal is required" },
+        { status: 400 }
+      );
     }
 
     if (orderType === "Dine In") {
@@ -381,12 +447,65 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    const subtotal = parsedItems.reduce((sum, row) => sum + row.lineTotal, 0);
+    const menuSubtotal = parsedItems.reduce((sum, row) => sum + row.lineTotal, 0);
+
+    const subtotal = menuSubtotal;
     const serviceCharge = 0;
     const discountAmount = 0;
-    const netTotal = subtotal + serviceCharge - discountAmount;
 
     const created = await prisma.$transaction(async (tx) => {
+      const dealSnapshots: Array<{
+        dealId: number;
+        name: string;
+        dealQty: number;
+        unitPrice: number;
+        items: Array<{ dish_id: number; quantity: number }>;
+      }> = [];
+
+      let dealSubtotal = 0;
+      for (const d of parsedDeals) {
+        const deal = await tx.deal.findFirst({
+          where: {
+            id: d.dealId,
+            branch_id: branchId,
+            status: "Active",
+          },
+          include: {
+            items: {
+              include: {
+                menu_item: { select: { dish_id: true, branch_id: true } },
+              },
+            },
+          },
+        });
+        if (!deal) {
+          throw new AuthError(`Deal not found or inactive: ${d.dealId}`, 404);
+        }
+        if (deal.items.length === 0) {
+          throw new AuthError(`Deal has no items: ${deal.name}`, 400);
+        }
+        for (const di of deal.items) {
+          if (di.menu_item.branch_id !== branchId) {
+            throw new AuthError(`Deal item branch mismatch for deal: ${deal.name}`, 400);
+          }
+        }
+        const unitPrice = Math.max(0, Number(deal.discount_value));
+        dealSubtotal += unitPrice * d.quantity;
+        dealSnapshots.push({
+          dealId: deal.id,
+          name: deal.name,
+          dealQty: d.quantity,
+          unitPrice,
+          items: deal.items.map((it) => ({
+            dish_id: it.menu_item.dish_id,
+            quantity: it.quantity,
+          })),
+        });
+      }
+
+      const orderSubtotal = menuSubtotal + dealSubtotal;
+      const netTotal = orderSubtotal + serviceCharge - discountAmount;
+
       const order = await tx.order.create({
         data: {
           order_type: orderType,
@@ -397,7 +516,7 @@ export async function POST(request: NextRequest) {
           order_taker_id: auth.id,
           branch_id: branchId,
           restaurant_id: branchRecord.restaurant_id,
-          g_total_amount: subtotal,
+          g_total_amount: orderSubtotal,
           service_charge: serviceCharge,
           discount_amount: discountAmount,
           net_total_amount: netTotal,
@@ -432,6 +551,34 @@ export async function POST(request: NextRequest) {
             branch_id: branchId,
           },
         });
+      }
+
+      for (const snap of dealSnapshots) {
+        const bundleDishId = await ensureDealBundleDish(tx, branchId, snap.name);
+        const bundleLineTotal = snap.unitPrice * snap.dealQty;
+        await tx.orderItem.create({
+          data: {
+            order_id: order.order_id,
+            dish_id: bundleDishId,
+            quantity: snap.dealQty,
+            price: snap.unitPrice,
+            total_amount: bundleLineTotal,
+            branch_id: branchId,
+          },
+        });
+        for (const comp of snap.items) {
+          const compQty = snap.dealQty * comp.quantity;
+          await tx.orderItem.create({
+            data: {
+              order_id: order.order_id,
+              dish_id: comp.dish_id,
+              quantity: compQty,
+              price: 0,
+              total_amount: 0,
+              branch_id: branchId,
+            },
+          });
+        }
       }
 
       const withItems = await tx.order.findUniqueOrThrow({

@@ -1,8 +1,7 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
-import { Pencil, Trash2, Store, Loader2, Eye } from "lucide-react";
+import { Pencil, Trash2, Store, Loader2 } from "lucide-react";
 import type { Restaurant } from "@/types/restaurant";
 
 interface RestaurantTableProps {
@@ -115,14 +114,6 @@ const RestaurantTable: React.FC<RestaurantTableProps> = ({
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center gap-2">
-                    <Link
-                      href={`/restaurants/${r.restaurant_id}`}
-                      className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer"
-                      aria-label={`View ${r.name}`}
-                      title="View branches & analytics"
-                    >
-                      <Eye size={17} />
-                    </Link>
                     <button
                       onClick={() => onEdit(r)}
                       className="p-2 rounded-lg text-blue-500 hover:bg-blue-50 transition-colors cursor-pointer"

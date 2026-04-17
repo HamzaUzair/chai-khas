@@ -3,7 +3,7 @@
 import React from "react";
 import { UtensilsCrossed } from "lucide-react";
 import type { TopSellingItem } from "@/types/dayend";
-import { formatPKR } from "@/lib/dayendData";
+import { formatPKR } from "@/lib/dayendFormat";
 
 interface TopSellingItemsProps {
   items: TopSellingItem[];

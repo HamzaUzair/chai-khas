@@ -10,7 +10,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { DayEndStats } from "@/types/dayend";
-import { formatPKR } from "@/lib/dayendData";
+import { formatPKR } from "@/lib/dayendFormat";
 
 interface SummaryStatsProps {
   stats: DayEndStats;

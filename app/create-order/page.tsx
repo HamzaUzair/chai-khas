@@ -1,10 +1,18 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Minus, Plus, Search, Trash2 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import {
+  clearOrderTakerCart,
+  loadOrderTakerCart,
+  saveOrderTakerCart,
+  type MenuCartLine,
+  type OrderTakerCartLine,
+} from "@/lib/order-taker-cart";
 
 type OrderType = "Dine In" | "Take Away" | "Delivery";
 
@@ -22,15 +30,6 @@ type ApiHall = {
   hallId: number;
   name: string;
   tables: Array<{ tableId: number; name: string; status: string; capacity: number }>;
-};
-type CartRow = {
-  key: string;
-  menuId: number;
-  menuName: string;
-  categoryName: string;
-  variationName: string | null;
-  unitPrice: number;
-  qty: number;
 };
 
 export default function CreateOrderPage() {
@@ -53,8 +52,9 @@ export default function CreateOrderPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
   const [notes, setNotes] = useState("");
-  const [cart, setCart] = useState<CartRow[]>([]);
+  const [cart, setCart] = useState<OrderTakerCartLine[]>([]);
   const [variationPickerFor, setVariationPickerFor] = useState<ApiMenuItem | null>(null);
+  const skipNextCartPersist = useRef(true);
 
   useEffect(() => {
     const session = getAuthSession();
@@ -87,6 +87,22 @@ export default function CreateOrderPage() {
     setSessionBranchId(session.branchId);
     setAuthorized(true);
   }, [router]);
+
+  useEffect(() => {
+    if (!authorized || sessionRole !== "ORDER_TAKER") return;
+    const loaded = loadOrderTakerCart();
+    if (loaded.length > 0) setCart(loaded);
+    skipNextCartPersist.current = true;
+  }, [authorized, sessionRole]);
+
+  useEffect(() => {
+    if (!authorized || sessionRole !== "ORDER_TAKER") return;
+    if (skipNextCartPersist.current) {
+      skipNextCartPersist.current = false;
+      return;
+    }
+    saveOrderTakerCart(cart);
+  }, [authorized, sessionRole, cart]);
 
   const loadContext = useCallback(async () => {
     if (!sessionBranchId) return;
@@ -138,22 +154,25 @@ export default function CreateOrderPage() {
   const addMenuItem = (item: ApiMenuItem, variationName: string | null, unitPrice: number) => {
     const key = `${item.id}::${variationName ?? "base"}`;
     setCart((prev) => {
-      const existing = prev.find((row) => row.key === key);
+      const existing = prev.find(
+        (row): row is MenuCartLine => row.kind === "menu" && row.key === key
+      );
       if (existing) {
-        return prev.map((row) => (row.key === key ? { ...row, qty: row.qty + 1 } : row));
+        return prev.map((row) =>
+          row.kind === "menu" && row.key === key ? { ...row, qty: row.qty + 1 } : row
+        );
       }
-      return [
-        ...prev,
-        {
-          key,
-          menuId: item.id,
-          menuName: item.itemName,
-          categoryName: item.category,
-          variationName,
-          unitPrice,
-          qty: 1,
-        },
-      ];
+      const line: MenuCartLine = {
+        kind: "menu",
+        key,
+        menuId: item.id,
+        menuName: item.itemName,
+        categoryName: item.category,
+        variationName,
+        unitPrice,
+        qty: 1,
+      };
+      return [...prev, line];
     });
   };
 
@@ -184,8 +203,10 @@ export default function CreateOrderPage() {
     setError("");
     setSuccess("");
     if (!sessionBranchId) return;
-    if (cart.length === 0) {
-      setError("Please add at least one menu item.");
+    const menuLines = cart.filter((r): r is MenuCartLine => r.kind === "menu");
+    const dealLines = cart.filter((r) => r.kind === "deal");
+    if (menuLines.length === 0 && dealLines.length === 0) {
+      setError("Please add at least one menu item or deal.");
       return;
     }
     if (orderType === "Dine In" && (!selectedHallId || !selectedTableId)) {
@@ -204,13 +225,17 @@ export default function CreateOrderPage() {
           hallId: orderType === "Dine In" ? selectedHallId : null,
           tableId: orderType === "Dine In" ? selectedTableId : null,
           comments: notes,
-          items: cart.map((row) => ({
+          items: menuLines.map((row) => ({
             menuId: row.menuId,
             menuName: row.menuName,
             categoryName: row.categoryName,
             variationName: row.variationName,
             quantity: row.qty,
             unitPrice: row.unitPrice,
+          })),
+          deals: dealLines.map((row) => ({
+            dealId: row.dealId,
+            quantity: row.qty,
           })),
         }),
       });
@@ -219,6 +244,7 @@ export default function CreateOrderPage() {
         throw new Error(data.error || "Failed to place order");
       }
       setCart([]);
+      if (sessionRole === "ORDER_TAKER") clearOrderTakerCart();
       setNotes("");
       setSuccess(`Order ${data.orderNo ?? ""} placed successfully.`);
     } catch (e) {
@@ -354,45 +380,94 @@ export default function CreateOrderPage() {
         <div className="w-full lg:w-96 shrink-0">
           <div className="lg:sticky lg:top-20 bg-white rounded-xl border border-gray-100 shadow-sm">
             <div className="p-4 border-b border-gray-100">
-              <p className="font-semibold text-gray-800">Current Order</p>
-              <p className="text-xs text-gray-500 mt-1">
-                {selectedHall?.name ? `Hall: ${selectedHall.name}` : "Hall: —"} |{" "}
-                {selectedTableId
-                  ? `Table: ${tables.find((t) => t.tableId === selectedTableId)?.name ?? selectedTableId}`
-                  : "Table: —"}
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-gray-800">Current Order</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {selectedHall?.name ? `Hall: ${selectedHall.name}` : "Hall: —"} |{" "}
+                    {selectedTableId
+                      ? `Table: ${tables.find((t) => t.tableId === selectedTableId)?.name ?? selectedTableId}`
+                      : "Table: —"}
+                  </p>
+                </div>
+                {sessionRole === "ORDER_TAKER" && (
+                  <Link
+                    href="/order-deals"
+                    className="text-xs font-semibold text-[#ff5a1f] hover:underline shrink-0"
+                  >
+                    Deals
+                  </Link>
+                )}
+              </div>
             </div>
 
             <div className="max-h-[420px] overflow-y-auto p-3 space-y-2">
               {cart.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-8">Cart is empty</p>
               ) : (
-                cart.map((row) => (
-                  <div key={row.key} className="border border-gray-100 rounded-lg p-3">
-                    <p className="text-sm font-medium text-gray-800">{row.menuName}</p>
-                    {row.variationName && (
-                      <p className="text-xs text-gray-500 mt-0.5">Variation: {row.variationName}</p>
-                    )}
-                    <div className="flex items-center justify-between mt-2">
-                      <p className="text-xs text-gray-500">PKR {row.unitPrice.toLocaleString()}</p>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => adjustQty(row.key, -1)} className="p-1 rounded border">
-                          <Minus size={12} />
-                        </button>
-                        <span className="text-sm font-semibold w-6 text-center">{row.qty}</span>
-                        <button onClick={() => adjustQty(row.key, 1)} className="p-1 rounded border">
-                          <Plus size={12} />
-                        </button>
-                        <button
-                          onClick={() => removeRow(row.key)}
-                          className="p-1 rounded text-red-500 border border-red-100"
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                cart.map((row) =>
+                  row.kind === "deal" ? (
+                    <div key={row.key} className="border border-amber-100 bg-amber-50/40 rounded-lg p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">
+                        Deal
+                      </p>
+                      <p className="text-sm font-semibold text-gray-900 mt-0.5">{row.dealName}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{row.dealType}</p>
+                      <ul className="mt-2 text-[11px] text-gray-600 space-y-0.5 border-t border-amber-100/80 pt-2">
+                        {row.components.map((c) => (
+                          <li key={`${row.key}-${c.dishId}-${c.name}`}>
+                            {c.name} × {c.quantity}
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-xs font-semibold text-[#ff5a1f]">
+                          PKR {row.unitPrice.toLocaleString()} each
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => adjustQty(row.key, -1)} className="p-1 rounded border">
+                            <Minus size={12} />
+                          </button>
+                          <span className="text-sm font-semibold w-6 text-center">{row.qty}</span>
+                          <button onClick={() => adjustQty(row.key, 1)} className="p-1 rounded border">
+                            <Plus size={12} />
+                          </button>
+                          <button
+                            onClick={() => removeRow(row.key)}
+                            className="p-1 rounded text-red-500 border border-red-100"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ) : (
+                    <div key={row.key} className="border border-gray-100 rounded-lg p-3">
+                      <p className="text-sm font-medium text-gray-800">{row.menuName}</p>
+                      {row.variationName && (
+                        <p className="text-xs text-gray-500 mt-0.5">Variation: {row.variationName}</p>
+                      )}
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-xs text-gray-500">PKR {row.unitPrice.toLocaleString()}</p>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => adjustQty(row.key, -1)} className="p-1 rounded border">
+                            <Minus size={12} />
+                          </button>
+                          <span className="text-sm font-semibold w-6 text-center">{row.qty}</span>
+                          <button onClick={() => adjustQty(row.key, 1)} className="p-1 rounded border">
+                            <Plus size={12} />
+                          </button>
+                          <button
+                            onClick={() => removeRow(row.key)}
+                            className="p-1 rounded text-red-500 border border-red-100"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                )
               )}
             </div>
 
@@ -412,7 +487,10 @@ export default function CreateOrderPage() {
               {success && <p className="text-xs text-green-600">{success}</p>}
               <button
                 onClick={placeOrder}
-                disabled={saving || cart.length === 0}
+                disabled={
+                  saving ||
+                  !cart.some((r) => r.kind === "menu" || r.kind === "deal")
+                }
                 className="w-full rounded-lg bg-[#ff5a1f] text-white py-2.5 text-sm font-semibold hover:bg-[#e04e18] disabled:opacity-50"
               >
                 {saving ? "Placing..." : "Place Order"}

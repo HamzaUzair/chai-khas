@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, Package, Printer, Clock } from "lucide-react";
+import { AlertTriangle, Package, Clock } from "lucide-react";
 
 interface Alert {
   type: string;
@@ -14,7 +14,6 @@ interface SystemAlertsPanelProps {
 
 const iconMap: Record<string, React.ElementType> = {
   inventory: Package,
-  printer: Printer,
   orders: Clock,
 };
 
@@ -38,8 +37,6 @@ const SystemAlertsPanel: React.FC<SystemAlertsPanelProps> = ({ alerts }) => {
           const color =
             a.type === "inventory"
               ? "bg-amber-50 border-amber-200 text-amber-800"
-              : a.type === "printer"
-              ? "bg-red-50 border-red-200 text-red-800"
               : "bg-orange-50 border-orange-200 text-orange-800";
           return (
             <div

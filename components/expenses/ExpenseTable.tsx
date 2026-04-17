@@ -39,6 +39,8 @@ interface ExpenseTableProps {
   loading: boolean;
   onEdit: (expense: Expense) => void;
   onDelete: (expense: Expense) => void;
+  /** When false, hide edit/delete (e.g. multi-branch Restaurant Admin view-only). */
+  canMutate?: boolean;
 }
 
 const ExpenseTable: React.FC<ExpenseTableProps> = ({
@@ -46,6 +48,7 @@ const ExpenseTable: React.FC<ExpenseTableProps> = ({
   loading,
   onEdit,
   onDelete,
+  canMutate = true,
 }) => {
   if (loading) {
     return (
@@ -158,24 +161,28 @@ const ExpenseTable: React.FC<ExpenseTableProps> = ({
 
                 {/* Actions */}
                 <td className="px-5 py-3.5 whitespace-nowrap text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    <button
-                      onClick={() => onEdit(exp)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-[11px] font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
-                      title="Edit"
-                    >
-                      <Pencil size={12} />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => onDelete(exp)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 text-[11px] font-semibold hover:bg-red-50 transition-colors cursor-pointer"
-                      title="Delete"
-                    >
-                      <Trash2 size={12} />
-                      Delete
-                    </button>
-                  </div>
+                  {canMutate ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => onEdit(exp)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-[11px] font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
+                        title="Edit"
+                      >
+                        <Pencil size={12} />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => onDelete(exp)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 text-[11px] font-semibold hover:bg-red-50 transition-colors cursor-pointer"
+                        title="Delete"
+                      >
+                        <Trash2 size={12} />
+                        Delete
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-gray-400">View only</span>
+                  )}
                 </td>
               </tr>
             ))}

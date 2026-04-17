@@ -91,13 +91,6 @@ enum TableStatus {
   RESERVED
 }
 
-enum PrinterType {
-  receipt
-  kitchen
-  bar
-  billing
-}
-
 /// Status for sellable menu items
 enum MenuItemStatus {
   ACTIVE
@@ -194,7 +187,6 @@ model Branch {
   kitchens            Kitchen[]
   order_items         OrderItem[]
   orders              Order[]
-  printers            Printer[]
   recipes             Recipe[]
   tables              Table[]
   users               User[]
@@ -223,6 +215,7 @@ model User {
   created_at          DateTime             @default(now())
   updated_at          DateTime             @updatedAt
   dayends_closed      DayEnd[]             @relation("ClosedBy")
+  expenses_created    Expense[]            @relation("ExpenseCreatedBy")
   orders_taken        Order[]              @relation("OrderTaker")
   restaurant          Restaurant?          @relation(fields: [restaurant_id], references: [restaurant_id])
   branch              Branch?              @relation(fields: [branch_id], references: [branch_id])
@@ -323,27 +316,6 @@ model Table {
   @@index([hall_id])
   @@index([branch_id, terminal])
   @@map("tables")
-}
-
-model Printer {
-  printer_id      Int         @id @default(autoincrement())
-  name            String
-  ip_address      String?
-  port            Int?        @default(9100)
-  connection_type String      @default("network")
-  usb_port        String?
-  printer_name    String?
-  type            PrinterType @default(receipt)
-  terminal        Int         @default(1)
-  branch_id       Int?
-  status          String      @default("active")
-  created_at      DateTime    @default(now())
-  updated_at      DateTime    @updatedAt
-  branch          Branch?     @relation(fields: [branch_id], references: [branch_id])
-
-  @@index([branch_id, terminal])
-  @@index([type])
-  @@map("printers")
 }
 
 model Kitchen {
@@ -668,14 +640,21 @@ model Expense {
   description       String?
   branch_id         Int?
   terminal          Int              @default(1)
+  payment_method    String?
+  status            String           @default("Active")
+  expense_date      DateTime         @default(now())
+  created_by_id     Int?
   created_at        DateTime         @default(now())
   updated_at        DateTime         @updatedAt
   branch            Branch?          @relation(fields: [branch_id], references: [branch_id])
   expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
   expenseCategoryId Int?
+  created_by        User?            @relation("ExpenseCreatedBy", fields: [created_by_id], references: [id])
 
   @@index([branch_id])
   @@index([branch_id, terminal])
+  @@index([expenseCategoryId])
+  @@index([created_by_id])
   @@map("expenses")
 }
 
@@ -692,6 +671,10 @@ model ExpenseCategory {
 model DayEnd {
   id                Int      @id @default(autoincrement())
   branch_id         Int
+  /// Business day this closure represents (calendar date, branch-local).
+  /// Combined with branch_id it is unique so a given branch/day can only be
+  /// closed once.
+  business_date     DateTime @default(now()) @db.Date
   opening_balance   Decimal  @default(0.00)
   expences          Decimal  @default(0.00)
   total_cash        Decimal  @default(0.00)
@@ -702,6 +685,10 @@ model DayEnd {
   total_receivings  Decimal  @default(0.00)
   drawings          Decimal  @default(0.00)
   closing_balance   Decimal  @default(0.00)
+  /// Booked order count captured at closure time (fast listing).
+  total_orders      Int      @default(0)
+  /// Cancelled order count captured at closure time.
+  cancelled_orders  Int      @default(0)
   closing_date_time DateTime @default(now())
   closing_by        Int      @default(0)
   note              String?
@@ -710,7 +697,9 @@ model DayEnd {
   branch            Branch   @relation(fields: [branch_id], references: [branch_id])
   closed_by         User     @relation("ClosedBy", fields: [closing_by], references: [id])
 
+  @@unique([branch_id, business_date])
   @@index([branch_id])
+  @@index([business_date])
   @@index([closing_date_time])
   @@map("dayend")
 }

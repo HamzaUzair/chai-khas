@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Minus, Equal } from "lucide-react";
-import { formatPKR } from "@/lib/dayendData";
+import { formatPKR } from "@/lib/dayendFormat";
 
 interface NetCalculationProps {
   totalSales: number;

@@ -3,7 +3,7 @@
 import React from "react";
 import { Wallet } from "lucide-react";
 import type { ExpenseEntry } from "@/types/dayend";
-import { formatPKR } from "@/lib/dayendData";
+import { formatPKR } from "@/lib/dayendFormat";
 
 interface ExpenseSummaryProps {
   totalExpenses: number;
@@ -33,7 +33,7 @@ const ExpenseSummary: React.FC<ExpenseSummaryProps> = ({ totalExpenses, expenses
         ) : (
           expenses.map((e) => (
             <div
-              key={e.id}
+              key={String(e.id)}
               className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-amber-50/50 border border-amber-100"
             >
               <div>

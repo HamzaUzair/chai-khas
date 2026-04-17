@@ -5,11 +5,18 @@ import { X, Loader2, Wallet } from "lucide-react";
 import type {
   Expense,
   ExpenseFormData,
-  ExpenseCategory,
   ExpensePaymentMethod,
   ExpenseBranch,
 } from "@/types/expense";
 import { EXPENSE_CATEGORIES, EXPENSE_PAYMENT_METHODS } from "@/types/expense";
+
+function localDateISO(): string {
+  // Local calendar date (YYYY-MM-DD) — avoids UTC-today bug for users east of
+  // UTC where `toISOString()` in the early hours of the local day returns the
+  // previous calendar date.
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 const emptyForm: ExpenseFormData = {
   title: "",
@@ -18,17 +25,18 @@ const emptyForm: ExpenseFormData = {
   branchId: "",
   amount: "",
   paymentMethod: "",
-  date: new Date().toISOString().slice(0, 10),
-  status: "Active",
+  date: localDateISO(),
 };
 
 interface ExpenseModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: ExpenseFormData) => void;
+  onSubmit: (data: ExpenseFormData) => void | Promise<void>;
   editExpense?: Expense | null;
   branches: ExpenseBranch[];
   branchesLoading: boolean;
+  /** When true, branch is fixed to the caller's scope (single option / disabled). */
+  branchLocked?: boolean;
 }
 
 const selectBase =
@@ -43,9 +51,11 @@ const ExpenseModal: React.FC<ExpenseModalProps> = ({
   editExpense,
   branches,
   branchesLoading,
+  branchLocked = false,
 }) => {
   const [form, setForm] = useState<ExpenseFormData>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   const isEdit = !!editExpense;
 
@@ -60,13 +70,16 @@ const ExpenseModal: React.FC<ExpenseModalProps> = ({
         amount: String(editExpense.amount),
         paymentMethod: editExpense.paymentMethod,
         date: editExpense.date,
-        status: editExpense.status,
       });
     } else {
-      setForm(emptyForm);
+      const next = { ...emptyForm, date: localDateISO() };
+      if (branchLocked && branches.length > 0) {
+        next.branchId = branches[0]!.id;
+      }
+      setForm(next);
     }
     setErrors({});
-  }, [editExpense, isOpen]);
+  }, [editExpense, isOpen, branchLocked, branches]);
 
   // Close on Escape
   const handleKey = useCallback(
@@ -92,7 +105,7 @@ const ExpenseModal: React.FC<ExpenseModalProps> = ({
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
     if (!form.title.trim()) errs.title = "Title is required";
-    if (!form.category) errs.category = "Category is required";
+    if (!form.category.trim()) errs.category = "Category is required";
     if (!form.branchId) errs.branchId = "Branch is required";
     if (!form.amount || Number(form.amount) <= 0) errs.amount = "Valid amount is required";
     if (!form.paymentMethod) errs.paymentMethod = "Payment method is required";
@@ -101,10 +114,15 @@ const ExpenseModal: React.FC<ExpenseModalProps> = ({
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-    onSubmit(form);
+    setSaving(true);
+    try {
+      await Promise.resolve(onSubmit(form));
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -192,7 +210,7 @@ const ExpenseModal: React.FC<ExpenseModalProps> = ({
                   className={selectBase}
                   value={form.branchId}
                   onChange={(e) => update("branchId", Number(e.target.value) || "")}
-                  disabled={branches.length === 0}
+                  disabled={branches.length === 0 || branchLocked}
                 >
                   <option value="">Select branch</option>
                   {branches.map((b) => (
@@ -249,36 +267,20 @@ const ExpenseModal: React.FC<ExpenseModalProps> = ({
             </div>
           </div>
 
-          {/* Date + Status */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Date <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="date"
-                className={inputBase}
-                value={form.date}
-                onChange={(e) => update("date", e.target.value)}
-              />
-              {errors.date && (
-                <p className="text-[11px] text-red-500 mt-1">{errors.date}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Status
-              </label>
-              <select
-                className={selectBase}
-                value={form.status}
-                onChange={(e) => update("status", e.target.value)}
-              >
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-            </div>
+          {/* Date */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Date <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="date"
+              className={inputBase}
+              value={form.date}
+              onChange={(e) => update("date", e.target.value)}
+            />
+            {errors.date && (
+              <p className="text-[11px] text-red-500 mt-1">{errors.date}</p>
+            )}
           </div>
 
           {/* Description */}
@@ -309,7 +311,7 @@ const ExpenseModal: React.FC<ExpenseModalProps> = ({
             type="submit"
             onClick={handleSubmit}
             className="px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={branchesLoading || branches.length === 0}
+            disabled={saving || branchesLoading || branches.length === 0}
           >
             {isEdit ? "Update Expense" : "Create Expense"}
           </button>

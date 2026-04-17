@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Receipt, DollarSign, Filter, BarChart3 } from "lucide-react";
-import type { Expense } from "@/types/expense";
+import type { ExpenseListStats } from "@/types/expense";
 
 function fmtPkr(n: number) {
   return (
@@ -12,47 +12,35 @@ function fmtPkr(n: number) {
 }
 
 interface ExpenseSummaryCardsProps {
-  allExpenses: Expense[];
-  filteredExpenses: Expense[];
+  stats: ExpenseListStats;
 }
 
-const ExpenseSummaryCards: React.FC<ExpenseSummaryCardsProps> = ({
-  allExpenses,
-  filteredExpenses,
-}) => {
-  const totalExpenses = allExpenses.length;
-  const totalAmount = allExpenses.reduce((s, e) => s + e.amount, 0);
-  const filteredResults = filteredExpenses.length;
-  const avgExpense =
-    filteredExpenses.length > 0
-      ? filteredExpenses.reduce((s, e) => s + e.amount, 0) / filteredExpenses.length
-      : 0;
-
+const ExpenseSummaryCards: React.FC<ExpenseSummaryCardsProps> = ({ stats }) => {
   const cards = [
     {
       label: "Total Expenses",
-      value: String(totalExpenses),
+      value: String(stats.scopeCount),
       icon: <Receipt size={22} />,
       bg: "bg-orange-50",
       color: "text-[#ff5a1f]",
     },
     {
       label: "Total Amount",
-      value: fmtPkr(totalAmount),
+      value: fmtPkr(stats.scopeSum),
       icon: <DollarSign size={22} />,
       bg: "bg-green-50",
       color: "text-green-600",
     },
     {
       label: "Filtered Results",
-      value: String(filteredResults),
+      value: String(stats.filteredCount),
       icon: <Filter size={22} />,
       bg: "bg-blue-50",
       color: "text-blue-600",
     },
     {
       label: "Average Expense",
-      value: fmtPkr(avgExpense),
+      value: fmtPkr(stats.filteredAvg),
       icon: <BarChart3 size={22} />,
       bg: "bg-purple-50",
       color: "text-purple-600",
