@@ -43,10 +43,10 @@ export function generateReportOrders(branches: ReportBranch[]): ReportOrder[] {
     const branch = pick(branches);
     const paymentMethod = pick(PAYMENTS);
 
-    // ~75% complete, ~15% cancelled, ~10% refunded
+    // legacy mock fallback data
     const roll = rnd(1, 100);
-    let status: ReportOrderStatus = "Complete";
-    if (roll > 90) status = "Refunded";
+    let status: ReportOrderStatus = "Paid";
+    if (roll > 90) status = "Credit";
     else if (roll > 75) status = "Cancelled";
 
     const subtotal = rnd(200, 4500);
@@ -55,7 +55,7 @@ export function generateReportOrders(branches: ReportBranch[]): ReportOrder[] {
     const tax = Math.round((subtotal - discount) * TAX_RATE);
     const serviceCharge = rnd(1, 5) === 1 ? rnd(50, 200) : 0;
     const total = subtotal - discount + tax + serviceCharge;
-    const refundAmount = status === "Refunded" ? total : 0;
+    const refundAmount = 0;
 
     // spread across last 35 days
     const daysAgo = i < 30 ? 0 : i < 60 ? 1 : i < 90 ? rnd(2, 6) : rnd(0, 35);
@@ -130,11 +130,6 @@ export function computeKPIs(orders: ReportOrder[]): ReportKPIs {
       discountCount++;
     }
 
-    if (o.status === "Refunded") {
-      totalRefunds += o.refundAmount;
-      refundCount++;
-    }
-
     switch (o.paymentMethod) {
       case "Cash":   cashAmt += o.total; cashCnt++; break;
       case "Card":   cardAmt += o.total; cardCnt++; break;
@@ -198,7 +193,7 @@ export function buildDailySummary(orders: ReportOrder[]): DailySummary[] {
     row.orders++;
     row.gross += o.total;
     row.discounts += o.discount;
-    row.refunds += o.refundAmount;
+    row.refunds += 0;
     row.tax += o.tax;
     row.serviceCharges += o.serviceCharge;
 

@@ -64,8 +64,9 @@ const ExpenseFilters: React.FC<ExpenseFiltersProps> = ({
               onChange={(e) =>
                 onBranchChange(e.target.value === "all" ? "all" : Number(e.target.value))
               }
+              disabled={branches.length === 1 && branchId !== "all"}
             >
-              <option value="all">All Branches</option>
+              {!(branches.length === 1 && branchId !== "all") && <option value="all">All Branches</option>}
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}

@@ -36,7 +36,7 @@
            <p className="text-sm text-gray-600">
              Are you sure you want to delete{" "}
              <strong className="text-gray-800">&quot;{dealName}&quot;</strong>? This
-             will remove the deal from the Super Admin panel. You can recreate it
+             will remove the deal from the platform. You can recreate it
              later if needed.
            </p>
            <p className="text-xs text-gray-400">

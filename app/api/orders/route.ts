@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  buildBranchScopeFilter,
+  requireAuth,
+} from "@/lib/server-auth";
+import type { Prisma } from "@prisma/client";
 
 type CreateOrderItem = {
   menuId?: number | string;
@@ -10,6 +16,87 @@ type CreateOrderItem = {
   quantity?: number | string;
   unitPrice?: number | string;
 };
+
+const DISCOUNT_META_TAG = "[DISCOUNT_META]";
+const BILLING_META_TAG = "[BILLING_META]";
+
+type DiscountMeta = {
+  type: "Fixed Amount" | "Percentage";
+  value: number;
+  reason: string;
+};
+
+type BillingMeta = {
+  discountType: "Fixed Amount" | "Percentage" | null;
+  discountValue: number;
+  discountReason: string | null;
+  serviceChargePercent: number;
+  serviceChargeAmount: number;
+  gstPercent: number;
+  gstAmount: number;
+  subtotal: number;
+};
+
+function parseBillingMeta(rawComments: string | null | undefined): {
+  notes: string;
+  meta: BillingMeta | null;
+} {
+  if (!rawComments) return { notes: "", meta: null };
+  const billingIdx = rawComments.indexOf(BILLING_META_TAG);
+  if (billingIdx >= 0) {
+    const notes = rawComments.slice(0, billingIdx).trim();
+    const metaJson = rawComments.slice(billingIdx + BILLING_META_TAG.length).trim();
+    try {
+      const parsed = JSON.parse(metaJson) as BillingMeta;
+      if (
+        (parsed.discountType === null ||
+          parsed.discountType === "Fixed Amount" ||
+          parsed.discountType === "Percentage") &&
+        Number.isFinite(parsed.discountValue) &&
+        (parsed.discountReason === null || typeof parsed.discountReason === "string") &&
+        Number.isFinite(parsed.serviceChargePercent) &&
+        Number.isFinite(parsed.serviceChargeAmount) &&
+        Number.isFinite(parsed.gstPercent) &&
+        Number.isFinite(parsed.gstAmount) &&
+        Number.isFinite(parsed.subtotal)
+      ) {
+        return { notes, meta: parsed };
+      }
+    } catch {
+      // ignore malformed metadata
+    }
+  }
+  const idx = rawComments.indexOf(DISCOUNT_META_TAG);
+  if (idx < 0) return { notes: rawComments, meta: null };
+
+  const notes = rawComments.slice(0, idx).trim();
+  const metaJson = rawComments.slice(idx + DISCOUNT_META_TAG.length).trim();
+  try {
+    const parsed = JSON.parse(metaJson) as DiscountMeta;
+    if (
+      (parsed.type === "Fixed Amount" || parsed.type === "Percentage") &&
+      Number.isFinite(parsed.value) &&
+      typeof parsed.reason === "string"
+    ) {
+      return {
+        notes,
+        meta: {
+          discountType: parsed.type,
+          discountValue: parsed.value,
+          discountReason: parsed.reason,
+          serviceChargePercent: 0,
+          serviceChargeAmount: 0,
+          gstPercent: 0,
+          gstAmount: 0,
+          subtotal: 0,
+        },
+      };
+    }
+  } catch {
+    // ignore malformed metadata
+  }
+  return { notes, meta: null };
+}
 
 function toNumber(value: number | string | null | undefined, fallback = 0) {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
@@ -110,6 +197,10 @@ function serializeOrder(order: {
       price: Number(item.price),
     };
   });
+  const { notes, meta } = parseBillingMeta(order.comments);
+  const fallbackSubtotal =
+    Number(order.net_total_amount) + Number(order.discount_amount) - Number(order.service_charge);
+  const subtotal = meta?.subtotal && meta.subtotal > 0 ? meta.subtotal : Math.max(0, fallbackSubtotal);
 
   return {
     id: String(order.order_id),
@@ -123,11 +214,13 @@ function serializeOrder(order: {
     status:
       order.order_status === "Pending" ||
       order.order_status === "Running" ||
-      order.order_status === "Bill Generated" ||
+      order.order_status === "Served" ||
+      order.order_status === "Paid" ||
       order.order_status === "Credit" ||
-      order.order_status === "Complete" ||
       order.order_status === "Cancelled"
         ? order.order_status
+        : order.order_status === "Bill Generated" || order.order_status === "Complete"
+        ? "Paid"
         : "Pending",
     paymentMode:
       order.payment_mode === "Cash" ||
@@ -139,15 +232,31 @@ function serializeOrder(order: {
     createdAt: new Date(order.created_at).getTime(),
     items: itemRows,
     discount: Number(order.discount_amount),
+    discountType: meta?.discountType ?? null,
+    discountValue: meta?.discountValue ?? 0,
+    discountReason: meta?.discountReason ?? null,
+    subtotal,
+    serviceChargePercent: meta?.serviceChargePercent ?? 0,
+    gstPercent: meta?.gstPercent ?? 0,
+    gstAmount: meta?.gstAmount ?? 0,
     serviceCharge: Number(order.service_charge),
-    paid: false,
-    notes: order.comments ?? "",
+    paid:
+      order.order_status === "Paid" ||
+      order.order_status === "Complete" ||
+      order.order_status === "Bill Generated",
+    notes,
   };
 }
 
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot access orders listing" },
+        { status: 403 }
+      );
+    }
     const { searchParams } = new URL(request.url);
     const branchIdParam = searchParams.get("branchId");
     const statusParam = searchParams.get("status");
@@ -155,16 +264,9 @@ export async function GET(request: NextRequest) {
 
     const requestedBranchId =
       branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
-    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
+    const scope = await buildBranchScopeFilter(auth, requestedBranchId);
+    const where: Prisma.OrderWhereInput = { ...(scope as Prisma.OrderWhereInput) };
 
-    const where: {
-      branch_id?: number;
-      order_status?: string;
-      OR?: Array<{ comments: { contains: string; mode: "insensitive" } }>;
-      order_taker_id?: number;
-    } = {};
-
-    if (scopedBranchId) where.branch_id = scopedBranchId;
     if (statusParam && statusParam !== "all") where.order_status = statusParam;
     if (searchParam) {
       const maybeId = Number(searchParam.replace(/^ORD-/i, "").trim());
@@ -213,7 +315,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
-    if (auth.role !== "SUPER_ADMIN" && auth.role !== "BRANCH_ADMIN" && auth.role !== "ORDER_TAKER") {
+    if (
+      auth.role !== "SUPER_ADMIN" &&
+      auth.role !== "RESTAURANT_ADMIN" &&
+      auth.role !== "BRANCH_ADMIN" &&
+      auth.role !== "ORDER_TAKER" &&
+      auth.role !== "CASHIER"
+    ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -228,7 +336,15 @@ export async function POST(request: NextRequest) {
     if (!branchId || Number.isNaN(branchId)) {
       return NextResponse.json({ error: "Branch is required" }, { status: 400 });
     }
-    assertBranchAccess(auth, branchId);
+    await assertBranchWriteAccess(auth, branchId);
+
+    const branchRecord = await prisma.branch.findUnique({
+      where: { branch_id: branchId },
+      select: { restaurant_id: true },
+    });
+    if (!branchRecord) {
+      return NextResponse.json({ error: "Branch not found" }, { status: 404 });
+    }
 
     if (rows.length === 0) {
       return NextResponse.json({ error: "At least one order item is required" }, { status: 400 });
@@ -280,6 +396,7 @@ export async function POST(request: NextRequest) {
           comments: comments || null,
           order_taker_id: auth.id,
           branch_id: branchId,
+          restaurant_id: branchRecord.restaurant_id,
           g_total_amount: subtotal,
           service_charge: serviceCharge,
           discount_amount: discountAmount,

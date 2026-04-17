@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  requireAuth,
+} from "@/lib/server-auth";
 
 type IncomingVariation = { name?: string; price?: number | string };
 
@@ -44,6 +48,12 @@ export async function PUT(
 ) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage menu items" },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const menuId = parseInt(id, 10);
 
@@ -113,7 +123,7 @@ export async function PUT(
         { status: 404 }
       );
     }
-    assertBranchAccess(auth, existing.branchId);
+    await assertBranchWriteAccess(auth, existing.branchId);
 
     const hasVars = Boolean(hasVariations);
     const normalizedRows = normalizeVariations(variations);
@@ -239,6 +249,12 @@ export async function DELETE(
 ) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage menu items" },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const menuId = parseInt(id, 10);
 
@@ -258,7 +274,7 @@ export async function DELETE(
         { status: 404 }
       );
     }
-    assertBranchAccess(auth, existing.branchId);
+    await assertBranchWriteAccess(auth, existing.branchId);
 
     await prisma.menu.delete({
       where: { id: menuId },

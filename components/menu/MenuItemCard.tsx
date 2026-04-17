@@ -37,12 +37,14 @@ interface MenuItemCardProps {
   item: MenuItem;
   onEdit: (item: MenuItem) => void;
   onDelete: (item: MenuItem) => void;
+  readOnly?: boolean;
 }
 
 const MenuItemCard: React.FC<MenuItemCardProps> = ({
   item,
   onEdit,
   onDelete,
+  readOnly = false,
 }) => (
   <div className="group bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 flex flex-col">
     {/* Top row: category badge + actions */}
@@ -51,22 +53,24 @@ const MenuItemCard: React.FC<MenuItemCardProps> = ({
         {getCatIcon(item.categoryName)}
         {item.categoryName}
       </span>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={() => onEdit(item)}
-          className="p-1.5 rounded-lg text-gray-400 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors cursor-pointer"
-          title="Edit"
-        >
-          <Pencil size={14} />
-        </button>
-        <button
-          onClick={() => onDelete(item)}
-          className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
-          title="Delete"
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={() => onEdit(item)}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors cursor-pointer"
+            title="Edit"
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            onClick={() => onDelete(item)}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+            title="Delete"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      )}
     </div>
 
     {/* Name + description */}

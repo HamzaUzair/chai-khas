@@ -9,8 +9,7 @@ const emptyForm: BranchFormData = {
   branch_name: "",
   branch_code: "",
   address: "",
-  phone: "",
-  email: "",
+  city: "",
   status: "Active",
 };
 
@@ -42,8 +41,7 @@ const CreateBranchModal: React.FC<CreateBranchModalProps> = ({
           branch_name: editBranch.branch_name,
           branch_code: editBranch.branch_code,
           address: editBranch.address ?? "",
-          phone: editBranch.phone ?? "",
-          email: editBranch.email ?? "",
+          city: editBranch.city ?? "",
           status: editBranch.status,
         });
       } else {
@@ -76,6 +74,8 @@ const CreateBranchModal: React.FC<CreateBranchModalProps> = ({
     const newErrors: Partial<Record<keyof BranchFormData, string>> = {};
     if (!formData.branch_name.trim()) newErrors.branch_name = "Branch name is required";
     if (!formData.branch_code.trim()) newErrors.branch_code = "Branch code is required";
+    if (!formData.address?.trim()) newErrors.address = "Complete address is required";
+    if (!formData.city?.trim()) newErrors.city = "City is required";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };

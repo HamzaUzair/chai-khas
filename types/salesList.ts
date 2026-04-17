@@ -3,8 +3,8 @@
 export type SaleStatus =
   | "Pending"
   | "Running"
-  | "Bill Generated"
-  | "Complete"
+  | "Served"
+  | "Paid"
   | "Cancelled"
   | "Credit";
 

@@ -16,10 +16,12 @@ import { getRoleLabel } from "@/types/user";
 
 const ROLE_BADGE: Record<UserRole, string> = {
   SUPER_ADMIN: "bg-purple-50 text-purple-700",
-  BRANCH_ADMIN: "bg-blue-50 text-blue-700",
+  RESTAURANT_ADMIN: "bg-blue-50 text-blue-700",
+  BRANCH_ADMIN: "bg-sky-50 text-sky-700",
   ORDER_TAKER: "bg-orange-50 text-orange-700",
   CASHIER: "bg-emerald-50 text-emerald-700",
   ACCOUNTANT: "bg-indigo-50 text-indigo-700",
+  LIVE_KITCHEN: "bg-rose-50 text-rose-700",
 };
 
 function fmtDate(ts: number) {
@@ -91,7 +93,12 @@ const UserCardList: React.FC<UserCardListProps> = ({ users, loading, onEdit, onD
             </div>
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <Building2 size={12} className="text-gray-400" />
-              <span className="truncate">{user.branchName}</span>
+              <span className="truncate">
+                {user.restaurantName || "Platform"}
+                {user.branchName && user.branchName !== "No Branch"
+                  ? ` · ${user.branchName}`
+                  : ""}
+              </span>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <Monitor size={12} className="text-gray-400" />

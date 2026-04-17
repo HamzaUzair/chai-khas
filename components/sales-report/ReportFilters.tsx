@@ -24,6 +24,7 @@ interface ReportFiltersProps {
   onDateToChange: (v: string) => void;
   branchId: number | "all";
   onBranchChange: (v: number | "all") => void;
+  lockBranchId?: number | null;
   includeCancelled: boolean;
   onIncludeCancelledChange: (v: boolean) => void;
   onClear: () => void;
@@ -51,6 +52,7 @@ const ReportFilters: React.FC<ReportFiltersProps> = ({
   onDateToChange,
   branchId,
   onBranchChange,
+  lockBranchId = null,
   includeCancelled,
   onIncludeCancelledChange,
   onClear,
@@ -108,8 +110,11 @@ const ReportFilters: React.FC<ReportFiltersProps> = ({
               onChange={(e) =>
                 onBranchChange(e.target.value === "all" ? "all" : Number(e.target.value))
               }
+              disabled={Boolean(lockBranchId) || (branches.length === 1 && branchId !== "all")}
             >
-              <option value="all">All Branches</option>
+              {!lockBranchId && !(branches.length === 1 && branchId !== "all") && (
+                <option value="all">All Branches</option>
+              )}
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}

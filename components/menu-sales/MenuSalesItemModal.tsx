@@ -156,25 +156,8 @@ const MenuSalesItemModal: React.FC<MenuSalesItemModalProps> = ({ item, onClose }
             </div>
           )}
 
-          {/* Simple bar chart placeholder for time breakdown */}
-          <div>
-            <h3 className="text-sm font-bold text-gray-700 mb-3">Sales Trend (mock)</h3>
-            <div className="flex items-end gap-1.5 h-20 px-2">
-              {Array.from({ length: 7 }).map((_, i) => {
-                const h = rndHeight(item.soldQty, i);
-                return (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <div
-                      className="w-full rounded-t bg-[#ff5a1f]/70 transition-all"
-                      style={{ height: `${h}%` }}
-                    />
-                    <span className="text-[8px] text-gray-400">
-                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i]}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+          <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
+            Trend is calculated from actual sold quantity versus the previous equal date range.
           </div>
         </div>
 
@@ -191,11 +174,5 @@ const MenuSalesItemModal: React.FC<MenuSalesItemModalProps> = ({ item, onClose }
     </div>
   );
 };
-
-/** deterministic-ish random height based on seed */
-function rndHeight(seed: number, idx: number) {
-  const base = ((seed * 7 + idx * 31) % 60) + 25;
-  return Math.min(100, Math.max(15, base));
-}
 
 export default MenuSalesItemModal;

@@ -22,6 +22,7 @@ interface UsersToolbarProps {
   onStatusChange: (v: "Active" | "Inactive" | "all") => void;
   roleOptions?: UserRole[];
   branchLocked?: boolean;
+  hideBranchFilter?: boolean;
 }
 
 const UsersToolbar: React.FC<UsersToolbarProps> = ({
@@ -36,6 +37,7 @@ const UsersToolbar: React.FC<UsersToolbarProps> = ({
   onStatusChange,
   roleOptions = [],
   branchLocked = false,
+  hideBranchFilter = false,
 }) => {
   const selectBase =
     "border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm text-gray-700 bg-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all";
@@ -85,27 +87,29 @@ const UsersToolbar: React.FC<UsersToolbarProps> = ({
         </div>
 
         {/* Branch */}
-        <div className={`min-w-[160px] ${branchLocked ? "opacity-80" : ""}`}>
-          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1.5">
-            <Building2 size={13} />
-            Branch
-          </label>
-          <select
-            className={selectBase + " w-full"}
-            value={filterBranchId}
-            onChange={(e) =>
-              onBranchChange(e.target.value === "all" ? "all" : Number(e.target.value))
-            }
-            disabled={branchLocked}
-          >
-            {!branchLocked && <option value="all">All Branches</option>}
-            {branches.map((b) => (
-              <option key={b.branch_id} value={b.branch_id}>
-                {b.branch_name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!hideBranchFilter && (
+          <div className={`min-w-[160px] ${branchLocked ? "opacity-80" : ""}`}>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1.5">
+              <Building2 size={13} />
+              Branch
+            </label>
+            <select
+              className={selectBase + " w-full"}
+              value={filterBranchId}
+              onChange={(e) =>
+                onBranchChange(e.target.value === "all" ? "all" : Number(e.target.value))
+              }
+              disabled={branchLocked}
+            >
+              {!branchLocked && <option value="all">All Branches</option>}
+              {branches.map((b) => (
+                <option key={b.branch_id} value={b.branch_id}>
+                  {b.branch_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Status */}
         <div className="min-w-[130px]">

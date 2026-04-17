@@ -16,9 +16,9 @@ import type { Order, OrderStatus } from "@/types/order";
 const STATUS_PILL: Record<OrderStatus, string> = {
   Pending: "bg-amber-50 text-amber-700",
   Running: "bg-blue-50 text-blue-700",
-  "Bill Generated": "bg-purple-50 text-purple-700",
+  Served: "bg-emerald-50 text-emerald-700",
+  Paid: "bg-purple-50 text-purple-700",
   Credit: "bg-gray-100 text-gray-600",
-  Complete: "bg-green-50 text-green-700",
   Cancelled: "bg-red-50 text-red-600",
 };
 
@@ -55,6 +55,16 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   if (!isOpen || !order) return null;
 
   const subtotal = order.items.reduce((s, it) => s + it.price * it.qty, 0);
+  const resolvedSubtotal = order.subtotal ?? subtotal;
+  const serviceChargePercent = order.serviceChargePercent ?? 5;
+  const gstPercent = order.gstPercent ?? 0;
+  const gstAmount = order.gstAmount ?? 0;
+  const discountDisplayLabel =
+    order.discount > 0
+      ? order.discountType === "Percentage" && (order.discountValue ?? 0) > 0
+        ? `${order.discountValue}%`
+        : `PKR ${order.discount.toLocaleString()}`
+      : "0";
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -183,6 +193,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   <div>
                     <p className="text-sm font-semibold text-gray-800">
                       {item.name}
+                      {item.variationName ? ` (${item.variationName})` : ""}
                     </p>
                     <p className="text-[11px] text-gray-400">
                       PKR {item.price.toLocaleString()} × {item.qty}
@@ -201,23 +212,35 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
             <div className="flex items-center justify-between text-sm text-gray-500">
               <span>Subtotal:</span>
               <span className="font-medium text-gray-700">
-                PKR {subtotal.toLocaleString()}
+                PKR {resolvedSubtotal.toLocaleString()}
               </span>
             </div>
             {order.discount > 0 && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-500">Discount:</span>
-                <span className="font-medium text-red-500">
-                  −PKR {order.discount.toLocaleString()}
+                <span className="font-medium text-red-500">{discountDisplayLabel}</span>
+              </div>
+            )}
+            {order.discount > 0 && order.discountReason && (
+              <div className="flex items-start justify-between text-sm gap-3">
+                <span className="text-gray-500">Discount Reason:</span>
+                <span className="font-medium text-gray-700 text-right">
+                  {order.discountReason}
                 </span>
               </div>
             )}
             {order.serviceCharge > 0 && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">Service Charge:</span>
+                <span className="text-gray-500">Service Charge ({serviceChargePercent}%):</span>
                 <span className="font-medium text-gray-700">
                   +PKR {order.serviceCharge.toLocaleString()}
                 </span>
+              </div>
+            )}
+            {gstAmount > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-500">GST ({gstPercent}%):</span>
+                <span className="font-medium text-gray-700">+PKR {gstAmount.toLocaleString()}</span>
               </div>
             )}
             <div className="flex items-center justify-between pt-2 border-t border-dashed border-gray-200">

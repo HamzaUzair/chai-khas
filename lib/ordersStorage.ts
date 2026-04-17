@@ -61,9 +61,9 @@ const TYPES: OrderType[] = ["Dine In", "Take Away", "Delivery"];
 const STATUSES: OrderStatus[] = [
   "Pending",
   "Running",
-  "Bill Generated",
+  "Served",
+  "Paid",
   "Credit",
-  "Complete",
   "Cancelled",
 ];
 const PAYMENTS: PaymentMode[] = ["Cash", "Card", "Online", "Credit"];
@@ -112,8 +112,7 @@ export function generateDemoOrders(branches: BranchInfo[]): Order[] {
     const serviceCharge = Math.random() > 0.7 ? Math.round(subtotal * 0.05) : 0;
     const total = subtotal - discount + serviceCharge;
 
-    const isPaid =
-      status === "Complete" || (status === "Bill Generated" && Math.random() > 0.5);
+    const isPaid = status === "Paid";
 
     const payment: PaymentMode =
       status === "Credit" ? "Credit" : pick(PAYMENTS.filter((p) => p !== "Credit"));

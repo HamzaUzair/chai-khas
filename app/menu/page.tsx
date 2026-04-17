@@ -4,16 +4,21 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PlusCircle, UtensilsCrossed } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import ReadOnlyBanner from "@/components/layout/ReadOnlyBanner";
 import MenuToolbar, { type StatusFilter } from "@/components/menu/MenuToolbar";
 import MenuItemCard from "@/components/menu/MenuItemCard";
 import MenuTable from "@/components/menu/MenuTable";
 import MenuItemModal from "@/components/menu/MenuItemModal";
 import type { ViewMode } from "@/components/menu/ViewToggle";
 import type { Branch } from "@/types/branch";
-import type { AppRole } from "@/types/auth";
 import type { MenuItem, MenuItemFormData } from "@/types/menu";
 import type { ApiCategory } from "@/types/category";
-import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import type { AuthSession } from "@/types/auth";
+import {
+  apiFetch,
+  getAuthSession,
+  isOperationalReadOnly,
+} from "@/lib/auth-client";
 
 interface ApiMenuRow {
   id: number;
@@ -37,8 +42,9 @@ interface ApiMenuRow {
 export default function MenuPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
-  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
   const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const readOnly = isOperationalReadOnly(session);
 
   /* ── Branches from API ── */
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -61,14 +67,14 @@ export default function MenuPage() {
 
   /* ──────────────── Auth guard ──────────────── */
   useEffect(() => {
-    const session = getAuthSession();
-    if (!session) {
+    const s = getAuthSession();
+    if (!s) {
       router.replace("/login");
     } else {
-      setSessionRole(session.role);
-      setSessionBranchId(session.branchId ?? null);
-      if (session.role === "BRANCH_ADMIN" && session.branchId) {
-        setFilterBranchId(session.branchId);
+      setSession(s);
+      setSessionBranchId(s.branchId ?? null);
+      if (s.branchId) {
+        setFilterBranchId(s.branchId);
       }
       setAuthorized(true);
     }
@@ -105,7 +111,7 @@ export default function MenuPage() {
     try {
       const params = new URLSearchParams();
       const effectiveBranchId =
-        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+        sessionBranchId !== null
           ? sessionBranchId
           : filterBranchId;
       if (effectiveBranchId !== "all") params.set("branchId", String(effectiveBranchId));
@@ -138,7 +144,7 @@ export default function MenuPage() {
     } finally {
       setMenuItemsLoading(false);
     }
-  }, [filterBranchId, filterCategoryName, statusFilter, debouncedSearch, sessionRole, sessionBranchId]);
+  }, [filterBranchId, filterCategoryName, statusFilter, debouncedSearch, sessionBranchId]);
 
   useEffect(() => {
     if (authorized && !branchesLoading) {
@@ -150,7 +156,7 @@ export default function MenuPage() {
   const fetchCategoryNames = useCallback(async () => {
     try {
       const effectiveBranchId =
-        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+        sessionBranchId !== null
           ? sessionBranchId
           : filterBranchId;
       const url =
@@ -173,7 +179,7 @@ export default function MenuPage() {
     } catch {
       setCategoryNames([]);
     }
-  }, [filterBranchId, branches, sessionRole, sessionBranchId]);
+  }, [filterBranchId, branches, sessionBranchId]);
 
   useEffect(() => {
     if (authorized && !branchesLoading) {
@@ -186,11 +192,13 @@ export default function MenuPage() {
 
   /* ──────────────── CRUD handlers ──────────────── */
   const openCreate = () => {
+    if (readOnly) return;
     setEditingItem(null);
     setModalOpen(true);
   };
 
   const openEdit = (item: MenuItem) => {
+    if (readOnly) return;
     setEditingItem(item);
     setModalOpen(true);
   };
@@ -262,6 +270,7 @@ export default function MenuPage() {
   };
 
   const handleDelete = async (item: MenuItem) => {
+    if (readOnly) return;
     if (!window.confirm(`Delete "${item.name}"?`)) return;
     try {
       const res = await apiFetch(`/api/menu/${item.id}`, { method: "DELETE" });
@@ -292,6 +301,8 @@ export default function MenuPage() {
 
   return (
     <DashboardLayout title="Menu">
+      {readOnly && <ReadOnlyBanner module="menu" />}
+
       {/* ── Page Header ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -300,7 +311,9 @@ export default function MenuPage() {
               Menu Management
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Manage menu items, prices, and categories across all branches
+              {readOnly
+                ? "Review menu items, prices, and categories across all branches."
+                : "Manage menu items, prices, and categories across all branches"}
             </p>
             <div className="flex items-center gap-4 mt-3">
               <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
@@ -316,21 +329,23 @@ export default function MenuPage() {
             </div>
           </div>
 
-          <div className="flex flex-col items-end gap-1">
-            <button
-              onClick={openCreate}
-              disabled={noBranches}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <PlusCircle size={18} />
-              + Add Menu Item
-            </button>
-            {noBranches && (
-              <p className="text-xs text-red-500">
-                Create an active branch first
-              </p>
-            )}
-          </div>
+          {!readOnly && (
+            <div className="flex flex-col items-end gap-1">
+              <button
+                onClick={openCreate}
+                disabled={noBranches}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <PlusCircle size={18} />
+                + Add Menu Item
+              </button>
+              {noBranches && (
+                <p className="text-xs text-red-500">
+                  Create an active branch first
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -340,7 +355,7 @@ export default function MenuPage() {
         branchesLoading={branchesLoading}
         filterBranchId={filterBranchId}
         onBranchChange={(v) => {
-          if (sessionRole === "BRANCH_ADMIN") return;
+          if (sessionBranchId !== null) return;
           setFilterBranchId(v);
           setFilterCategoryName("all");
         }}
@@ -380,6 +395,7 @@ export default function MenuPage() {
                 item={item}
                 onEdit={openEdit}
                 onDelete={handleDelete}
+                readOnly={readOnly}
               />
             ))}
           </div>
@@ -390,6 +406,7 @@ export default function MenuPage() {
           loading={false}
           onEdit={openEdit}
           onDelete={handleDelete}
+          readOnly={readOnly}
         />
       )}
 

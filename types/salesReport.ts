@@ -1,7 +1,7 @@
 /* ── Sales Report (Accounting) types ── */
 
 export type ReportPaymentMethod = "Cash" | "Card" | "Online" | "Credit";
-export type ReportOrderStatus = "Complete" | "Cancelled" | "Refunded";
+export type ReportOrderStatus = "Pending" | "Running" | "Served" | "Paid" | "Cancelled" | "Credit";
 export type TimeRange = "today" | "this_week" | "this_month" | "custom";
 
 export interface ReportOrder {

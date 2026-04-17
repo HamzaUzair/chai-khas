@@ -76,8 +76,8 @@ function randomItems(): SaleItem[] {
 const STATUSES: SaleStatus[] = [
   "Pending",
   "Running",
-  "Bill Generated",
-  "Complete",
+  "Served",
+  "Paid",
   "Cancelled",
   "Credit",
 ];
@@ -104,7 +104,7 @@ export function generateSalesData(branches: SaleBranch[]): SaleOrder[] {
     const discount = rnd(0, 3) === 0 ? rnd(50, 300) : 0;
     const serviceCharge = rnd(0, 2) === 0 ? rnd(50, 200) : 0;
     const total = subtotal - discount + serviceCharge;
-    const paid = status === "Complete" || status === "Bill Generated";
+    const paid = status === "Paid";
     // spread orders across last 14 days + a few today
     const daysAgo = i < 8 ? 0 : i < 15 ? 1 : rnd(2, 14);
     const hoursAgo = rnd(0, 23);

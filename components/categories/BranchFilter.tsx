@@ -28,9 +28,9 @@ const BranchFilter: React.FC<BranchFilterProps> = ({
           const v = e.target.value;
           onChange(v === "all" ? "all" : Number(v));
         }}
-        disabled={loading}
+        disabled={loading || (branches.length === 1 && value !== "all")}
       >
-        <option value="all">All Branches</option>
+        {!(branches.length === 1 && value !== "all") && <option value="all">All Branches</option>}
         {branches.map((b) => (
           <option key={b.branch_id} value={b.branch_id}>
             {b.branch_name}

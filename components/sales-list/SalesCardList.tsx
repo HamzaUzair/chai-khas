@@ -5,10 +5,10 @@ import { Eye, Building2, Calendar, CreditCard } from "lucide-react";
 import type { SaleOrder, SaleStatus, OrderType, PaymentMethod } from "@/types/salesList";
 
 const STATUS_BADGE: Record<SaleStatus, string> = {
-  Complete: "bg-green-50 text-green-700",
+  Paid: "bg-green-50 text-green-700",
   Pending: "bg-amber-50 text-amber-700",
   Running: "bg-blue-50 text-blue-700",
-  "Bill Generated": "bg-purple-50 text-purple-700",
+  Served: "bg-purple-50 text-purple-700",
   Cancelled: "bg-red-50 text-red-700",
   Credit: "bg-gray-100 text-gray-600",
 };

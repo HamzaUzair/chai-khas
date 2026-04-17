@@ -19,6 +19,7 @@ import type { Branch } from "@/types/branch";
 import type { AppUser, UserFormData, UserRole } from "@/types/user";
 import { STAFF_USER_ROLES } from "@/types/user";
 import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import type { AuthSession } from "@/types/auth";
 
 interface Toast {
   id: number;
@@ -36,7 +37,15 @@ type BranchOption = {
 export default function RolesPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [session, setSession] = useState<AuthSession | null>(null);
   const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const isHeadOfficeMode =
+    session?.role === "RESTAURANT_ADMIN" &&
+    session?.restaurantHasMultipleBranches === true;
+  const isBranchScopedStaffMode =
+    session?.role === "BRANCH_ADMIN" ||
+    (session?.role === "RESTAURANT_ADMIN" &&
+      session?.restaurantHasMultipleBranches === false);
 
   const [branches, setBranches] = useState<BranchOption[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
@@ -57,17 +66,18 @@ export default function RolesPage() {
   }, []);
 
   useEffect(() => {
-    const session = getAuthSession();
-    if (!session) {
+    const s = getAuthSession();
+    if (!s) {
       router.replace("/login");
       return;
     }
-    if (session.role !== "BRANCH_ADMIN" || !session.branchId) {
+    if (s.role !== "RESTAURANT_ADMIN" && s.role !== "BRANCH_ADMIN") {
       router.replace("/dashboard");
       return;
     }
 
-    setSessionBranchId(session.branchId);
+    setSession(s);
+    setSessionBranchId(s.branchId ?? null);
     setAuthorized(true);
   }, [router]);
 
@@ -113,7 +123,9 @@ export default function RolesPage() {
   }, [authorized, branchesLoading, loadUsers]);
 
   const filtered = useMemo(() => {
-    let list = users;
+    let list = isHeadOfficeMode
+      ? users.filter((u) => u.role === "BRANCH_ADMIN")
+      : users;
     if (filterRole !== "all") list = list.filter((u) => u.role === filterRole);
     if (filterStatus !== "all") list = list.filter((u) => u.status === filterStatus);
     if (search.trim()) {
@@ -145,18 +157,32 @@ export default function RolesPage() {
 
   const handleSubmit = (data: UserFormData) => {
     (async () => {
-      if (!data.role || !STAFF_USER_ROLES.includes(data.role)) {
-        pushToast("Invalid staff role selected.", "error");
+      const effectiveRole = isHeadOfficeMode ? "BRANCH_ADMIN" : data.role;
+      const isValidRole = isHeadOfficeMode
+        ? effectiveRole === "BRANCH_ADMIN"
+        : !!effectiveRole && STAFF_USER_ROLES.includes(effectiveRole);
+      if (!isValidRole) {
+        pushToast(
+          isHeadOfficeMode
+            ? "Only Branch Admin can be assigned in head office mode."
+            : "Invalid staff role selected.",
+          "error"
+        );
         return;
       }
       try {
+        const selectedBranchId =
+          data.branchId === "" ? null : Number(data.branchId);
         const payload = {
           username: data.username.trim(),
           fullName: data.fullName.trim(),
           password: data.password,
-          role: data.role,
-          branchId: sessionBranchId,
-          terminal: Math.max(1, Number(data.terminal) || 1),
+          role: effectiveRole,
+          branchId: isHeadOfficeMode ? selectedBranchId : sessionBranchId,
+          terminal:
+            isHeadOfficeMode || isBranchScopedStaffMode
+              ? 1
+              : Math.max(1, Number(data.terminal) || 1),
           status: data.status,
         };
 
@@ -173,18 +199,34 @@ export default function RolesPage() {
         }
         await loadUsers();
         pushToast(
-          `Staff "${data.fullName.trim()}" ${editingUser ? "updated" : "created"} successfully.`
+          `${isHeadOfficeMode ? "Branch Admin" : "Staff"} "${data.fullName.trim()}" ${
+            editingUser ? "updated" : "created"
+          } successfully.`
         );
         closeModal();
       } catch (e) {
-        pushToast(e instanceof Error ? e.message : "Failed to save staff user", "error");
+        pushToast(
+          e instanceof Error
+            ? e.message
+            : isHeadOfficeMode
+            ? "Failed to save Branch Admin"
+            : "Failed to save staff user",
+          "error"
+        );
       }
     })();
   };
 
   const handleDelete = (user: AppUser) => {
     (async () => {
-      if (!window.confirm(`Delete staff "${user.fullName}"? This action cannot be undone.`)) return;
+      if (
+        !window.confirm(
+          `Delete ${isHeadOfficeMode ? "Branch Admin" : "staff"} "${
+            user.fullName
+          }"? This action cannot be undone.`
+        )
+      )
+        return;
       try {
         const res = await apiFetch(`/api/users/${user.userId}`, { method: "DELETE" });
         if (!res.ok) {
@@ -192,9 +234,21 @@ export default function RolesPage() {
           throw new Error(err.error || "Failed to delete staff user");
         }
         await loadUsers();
-        pushToast(`Staff "${user.fullName}" deleted.`, "error");
+        pushToast(
+          `${isHeadOfficeMode ? "Branch Admin" : "Staff"} "${
+            user.fullName
+          }" deleted.`,
+          "error"
+        );
       } catch (e) {
-        pushToast(e instanceof Error ? e.message : "Failed to delete staff user", "error");
+        pushToast(
+          e instanceof Error
+            ? e.message
+            : isHeadOfficeMode
+            ? "Failed to delete Branch Admin"
+            : "Failed to delete staff user",
+          "error"
+        );
       }
     })();
   };
@@ -234,9 +288,13 @@ export default function RolesPage() {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800">Staff Management</h2>
+            <h2 className="text-2xl font-bold text-gray-800">
+              {isHeadOfficeMode ? "Roles" : "Roles"}
+            </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Create and manage Order Takers, Cashiers, and Accountants for your branch
+              {isHeadOfficeMode
+                ? "Assign Branch Admins to branches in your restaurant."
+                : "Create and manage branch staff roles from one place."}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -244,7 +302,11 @@ export default function RolesPage() {
               onClick={() => {
                 fetchBranches();
                 loadUsers();
-                pushToast("Staff list refreshed");
+                pushToast(
+                  isHeadOfficeMode
+                    ? "Branch Admin list refreshed"
+                    : "Staff list refreshed"
+                );
               }}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors cursor-pointer"
             >
@@ -256,7 +318,7 @@ export default function RolesPage() {
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm"
             >
               <PlusCircle size={16} />
-              + Add Staff
+              {isHeadOfficeMode ? "+ Assign Branch Admin" : "+ Add Staff"}
             </button>
           </div>
         </div>
@@ -272,8 +334,9 @@ export default function RolesPage() {
         onBranchChange={() => {}}
         filterStatus={filterStatus}
         onStatusChange={setFilterStatus}
-        roleOptions={STAFF_USER_ROLES}
-        branchLocked
+        roleOptions={isHeadOfficeMode ? ["BRANCH_ADMIN"] : STAFF_USER_ROLES}
+        branchLocked={!isHeadOfficeMode}
+        hideBranchFilter={isHeadOfficeMode || isBranchScopedStaffMode}
       />
 
       {!branchesLoading && filtered.length === 0 ? (
@@ -284,7 +347,11 @@ export default function RolesPage() {
             </div>
             <p className="text-sm text-gray-500 max-w-xs">
               {users.length === 0
-                ? "No staff users yet. Click '+ Add Staff' to get started."
+                ? isHeadOfficeMode
+                  ? "No Branch Admins yet. Click '+ Assign Branch Admin' to get started."
+                  : "No staff users yet. Click '+ Add Staff' to get started."
+                : isHeadOfficeMode
+                ? "No Branch Admins match your current filters."
                 : "No staff users match your current filters."}
             </p>
             {users.length === 0 && (
@@ -293,7 +360,9 @@ export default function RolesPage() {
                 className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm"
               >
                 <PlusCircle size={16} />
-                Add your first staff user
+                {isHeadOfficeMode
+                  ? "Assign your first Branch Admin"
+                  : "Add your first staff user"}
               </button>
             )}
           </div>
@@ -325,10 +394,27 @@ export default function RolesPage() {
         onSubmit={handleSubmit}
         editUser={editingUser}
         branches={branches}
-        roleOptions={STAFF_USER_ROLES}
-        branchLocked
-        fixedBranchId={sessionBranchId}
-        title={editingUser ? "Edit Staff User" : "Add New Staff User"}
+        roleOptions={isHeadOfficeMode ? ["BRANCH_ADMIN"] : STAFF_USER_ROLES}
+        restaurants={
+          session?.restaurantId && session?.restaurantName
+            ? [{ restaurant_id: session.restaurantId, name: session.restaurantName }]
+            : []
+        }
+        restaurantLocked={!isHeadOfficeMode}
+        fixedRestaurantId={!isHeadOfficeMode ? session?.restaurantId ?? null : null}
+        branchLocked={!isHeadOfficeMode}
+        hideBranchFields={!isHeadOfficeMode}
+        hideTerminalField={isHeadOfficeMode || isBranchScopedStaffMode}
+        fixedBranchId={!isHeadOfficeMode ? sessionBranchId : null}
+        title={
+          isHeadOfficeMode
+            ? editingUser
+              ? "Edit Branch Admin Assignment"
+              : "Assign Branch Admin"
+            : editingUser
+            ? "Edit Staff"
+            : "Add Staff"
+        }
       />
     </DashboardLayout>
   );

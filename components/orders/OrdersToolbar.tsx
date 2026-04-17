@@ -34,17 +34,17 @@ const STATUS_COLORS: Record<string, { active: string; inactive: string }> = {
     active: "bg-blue-500 text-white border-blue-500",
     inactive: "bg-white text-blue-600 border-blue-200 hover:bg-blue-50",
   },
-  "Bill Generated": {
+  Served: {
+    active: "bg-emerald-500 text-white border-emerald-500",
+    inactive: "bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50",
+  },
+  Paid: {
     active: "bg-purple-500 text-white border-purple-500",
     inactive: "bg-white text-purple-600 border-purple-200 hover:bg-purple-50",
   },
   Credit: {
     active: "bg-gray-600 text-white border-gray-600",
     inactive: "bg-white text-gray-600 border-gray-200 hover:bg-gray-50",
-  },
-  Complete: {
-    active: "bg-green-500 text-white border-green-500",
-    inactive: "bg-white text-green-600 border-green-200 hover:bg-green-50",
   },
   Cancelled: {
     active: "bg-red-500 text-white border-red-500",

@@ -59,11 +59,11 @@ export function generateDemoUsers(
     daysAgo: number;
   }[] = [
     { username: "sdmain@gmail.com", fullName: "Hamza Badar", role: "SUPER_ADMIN", branchIdx: null, status: "Active", terminal: 1, daysAgo: 90 },
-    { username: "admin@mainbranch.com", fullName: "Ali Ahmed", role: "BRANCH_ADMIN", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 60 },
-    { username: "admin@north.com", fullName: "Fatima Noor", role: "BRANCH_ADMIN", branchIdx: 1, status: "Active", terminal: 1, daysAgo: 30 },
-    { username: "admin@downtown.com", fullName: "Zainab Tariq", role: "BRANCH_ADMIN", branchIdx: 2, status: "Active", terminal: 1, daysAgo: 15 },
-    { username: "admin@gulberg.com", fullName: "Sara Khan", role: "BRANCH_ADMIN", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 10 },
-    { username: "branch2@mainbranch.com", fullName: "Hassan Raza", role: "BRANCH_ADMIN", branchIdx: 1, status: "Inactive", terminal: 2, daysAgo: 50 },
+    { username: "admin@mainbranch.com", fullName: "Ali Ahmed", role: "RESTAURANT_ADMIN", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 60 },
+    { username: "admin@north.com", fullName: "Fatima Noor", role: "RESTAURANT_ADMIN", branchIdx: 1, status: "Active", terminal: 1, daysAgo: 30 },
+    { username: "admin@downtown.com", fullName: "Zainab Tariq", role: "RESTAURANT_ADMIN", branchIdx: 2, status: "Active", terminal: 1, daysAgo: 15 },
+    { username: "admin@gulberg.com", fullName: "Sara Khan", role: "RESTAURANT_ADMIN", branchIdx: 0, status: "Active", terminal: 1, daysAgo: 10 },
+    { username: "branch2@mainbranch.com", fullName: "Hassan Raza", role: "RESTAURANT_ADMIN", branchIdx: 1, status: "Inactive", terminal: 2, daysAgo: 50 },
   ];
 
   return demos.map((d, i) => {
@@ -77,6 +77,8 @@ export function generateDemoUsers(
       username: d.username,
       fullName: d.fullName,
       role: d.role,
+      restaurantId: null,
+      restaurantName: "",
       branchId: branch ? branch.branch_id : null,
       branchName: branch ? branch.branch_name : "No Branch",
       branchCode: branch ? branch.branch_code : "—",

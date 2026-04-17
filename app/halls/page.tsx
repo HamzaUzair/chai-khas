@@ -11,15 +11,20 @@ import {
   X,
 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import ReadOnlyBanner from "@/components/layout/ReadOnlyBanner";
 import HallsToolbar from "@/components/halls/HallsToolbar";
 import HallsStats from "@/components/halls/HallsStats";
 import HallsTable from "@/components/halls/HallsTable";
 import HallCardList from "@/components/halls/HallCardList";
 import HallModal from "@/components/halls/HallModal";
 import type { Branch } from "@/types/branch";
-import type { AppRole } from "@/types/auth";
 import type { Hall, HallFormData } from "@/types/hall";
-import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import type { AuthSession } from "@/types/auth";
+import {
+  apiFetch,
+  getAuthSession,
+  isOperationalReadOnly,
+} from "@/lib/auth-client";
 
 /* ── tiny toast ── */
 interface Toast {
@@ -31,8 +36,9 @@ interface Toast {
 export default function HallsPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
-  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
   const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const readOnly = isOperationalReadOnly(session);
 
   /* ── Branches ── */
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -62,14 +68,14 @@ export default function HallsPage() {
 
   /* ══════════════ Auth guard ══════════════ */
   useEffect(() => {
-    const session = getAuthSession();
-    if (!session) {
+    const s = getAuthSession();
+    if (!s) {
       router.replace("/login");
     } else {
-      setSessionRole(session.role);
-      setSessionBranchId(session.branchId ?? null);
-      if (session.role === "BRANCH_ADMIN" && session.branchId) {
-        setFilterBranchId(session.branchId);
+      setSession(s);
+      setSessionBranchId(s.branchId ?? null);
+      if (s.branchId) {
+        setFilterBranchId(s.branchId);
       }
       setAuthorized(true);
     }
@@ -99,7 +105,7 @@ export default function HallsPage() {
     try {
       const params = new URLSearchParams();
       const effectiveBranchId =
-        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+        sessionBranchId !== null
           ? sessionBranchId
           : filterBranchId;
       if (effectiveBranchId !== "all") {
@@ -117,7 +123,7 @@ export default function HallsPage() {
     } finally {
       setHallsLoading(false);
     }
-  }, [filterBranchId, search, sessionRole, sessionBranchId]);
+  }, [filterBranchId, search, sessionBranchId]);
 
   useEffect(() => {
     if (!authorized || branchesLoading) return;
@@ -131,11 +137,13 @@ export default function HallsPage() {
 
   /* ══════════════ CRUD handlers ══════════════ */
   const openCreate = () => {
+    if (readOnly) return;
     setEditingHall(null);
     setModalOpen(true);
   };
 
   const openEdit = (hall: Hall) => {
+    if (readOnly) return;
     setEditingHall(hall);
     setModalOpen(true);
   };
@@ -150,7 +158,7 @@ export default function HallsPage() {
       const payload = {
         name: data.name.trim(),
         branchId:
-          sessionRole === "BRANCH_ADMIN" && sessionBranchId
+          sessionBranchId !== null
             ? sessionBranchId
             : data.branchId,
         terminal: Math.max(1, Number(data.terminal) || 1),
@@ -184,6 +192,7 @@ export default function HallsPage() {
   };
 
   const handleDelete = async (hall: Hall) => {
+    if (readOnly) return;
     if (!window.confirm(`Delete hall "${hall.name}"? This cannot be undone.`)) return;
     try {
       const res = await apiFetch(`/api/halls/${hall.hallId}`, {
@@ -213,6 +222,8 @@ export default function HallsPage() {
 
   return (
     <DashboardLayout title="Halls">
+      {readOnly && <ReadOnlyBanner module="halls" />}
+
       {/* ── Toast container ── */}
       <div className="fixed top-5 right-5 z-[200] space-y-2 pointer-events-none">
         {toasts.map((t) => (
@@ -248,7 +259,9 @@ export default function HallsPage() {
               Hall Management
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Manage restaurant halls and their capacity across all branches
+              {readOnly
+                ? "Review restaurant halls and capacity across all branches"
+                : "Manage restaurant halls and their capacity across all branches"}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -259,14 +272,16 @@ export default function HallsPage() {
               <RefreshCw size={15} />
               Refresh
             </button>
-            <button
-              onClick={openCreate}
-              disabled={noBranches}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <PlusCircle size={16} />
-              + Add Hall
-            </button>
+            {!readOnly && (
+              <button
+                onClick={openCreate}
+                disabled={noBranches}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <PlusCircle size={16} />
+                + Add Hall
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -288,12 +303,12 @@ export default function HallsPage() {
         branchesLoading={branchesLoading}
         filterBranchId={filterBranchId}
         onBranchChange={(v) => {
-          if (sessionRole === "BRANCH_ADMIN") return;
+          if (sessionBranchId !== null) return;
           setFilterBranchId(v);
         }}
         search={search}
         onSearchChange={setSearch}
-        branchLocked={sessionRole === "BRANCH_ADMIN"}
+        branchLocked={sessionBranchId !== null}
       />
 
       {/* ── Stats ── */}
@@ -316,7 +331,7 @@ export default function HallsPage() {
                 ? "No halls yet. Start by adding your first hall."
                 : "No halls match your current filters."}
             </p>
-            {halls.length === 0 && !noBranches && (
+            {halls.length === 0 && !noBranches && !readOnly && (
               <button
                 onClick={openCreate}
                 className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm"
@@ -337,6 +352,7 @@ export default function HallsPage() {
               onEdit={openEdit}
               onManageTables={openEdit}
               onDelete={handleDelete}
+              readOnly={readOnly}
             />
           </div>
           {/* Mobile cards */}
@@ -347,6 +363,7 @@ export default function HallsPage() {
               onEdit={openEdit}
               onManageTables={openEdit}
               onDelete={handleDelete}
+              readOnly={readOnly}
             />
           </div>
         </>
@@ -361,8 +378,8 @@ export default function HallsPage() {
         activeBranches={branches}
         branchesLoading={branchesLoading}
         preSelectedBranchId={filterBranchId}
-        branchLocked={sessionRole === "BRANCH_ADMIN"}
-        forcedBranchId={sessionRole === "BRANCH_ADMIN" ? sessionBranchId : null}
+        branchLocked={sessionBranchId !== null}
+        forcedBranchId={sessionBranchId}
       />
     </DashboardLayout>
   );

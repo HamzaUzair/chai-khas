@@ -13,9 +13,9 @@ import type { Order, OrderStatus } from "@/types/order";
 const STATUS_PILL: Record<OrderStatus, string> = {
   Pending: "bg-amber-50 text-amber-700",
   Running: "bg-blue-50 text-blue-700",
-  "Bill Generated": "bg-purple-50 text-purple-700",
+  Served: "bg-emerald-50 text-emerald-700",
+  Paid: "bg-purple-50 text-purple-700",
   Credit: "bg-gray-100 text-gray-600",
-  Complete: "bg-green-50 text-green-700",
   Cancelled: "bg-red-50 text-red-600",
 };
 
@@ -40,12 +40,16 @@ interface OrdersTableProps {
   orders: Order[];
   loading: boolean;
   onView: (order: Order) => void;
+  onPay?: (order: Order) => void;
+  isCashierMode?: boolean;
 }
 
 const OrdersTable: React.FC<OrdersTableProps> = ({
   orders,
   loading,
   onView,
+  onPay,
+  isCashierMode = false,
 }) => {
   if (loading) {
     return (
@@ -163,13 +167,23 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
 
                 {/* Actions */}
                 <td className="px-5 py-3.5 whitespace-nowrap">
-                  <button
-                    onClick={() => onView(order)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-xs font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
-                  >
-                    <Eye size={14} />
-                    View
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onView(order)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-xs font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
+                    >
+                      <Eye size={14} />
+                      View
+                    </button>
+                    {isCashierMode && order.status === "Served" && onPay && (
+                      <button
+                        onClick={() => onPay(order)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff5a1f] text-white text-xs font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer"
+                      >
+                        Pay
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

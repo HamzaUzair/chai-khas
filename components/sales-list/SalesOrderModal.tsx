@@ -15,10 +15,10 @@ import type { SaleOrder, SaleStatus, OrderType, PaymentMethod } from "@/types/sa
 
 /* ── badge maps ── */
 const STATUS_BADGE: Record<SaleStatus, string> = {
-  Complete: "bg-green-50 text-green-700 border-green-200",
+  Paid: "bg-green-50 text-green-700 border-green-200",
   Pending: "bg-amber-50 text-amber-700 border-amber-200",
   Running: "bg-blue-50 text-blue-700 border-blue-200",
-  "Bill Generated": "bg-purple-50 text-purple-700 border-purple-200",
+  Served: "bg-purple-50 text-purple-700 border-purple-200",
   Cancelled: "bg-red-50 text-red-700 border-red-200",
   Credit: "bg-gray-100 text-gray-600 border-gray-200",
 };

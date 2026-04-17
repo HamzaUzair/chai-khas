@@ -51,9 +51,9 @@ const KitchenToolbar: React.FC<KitchenToolbarProps> = ({
             const v = e.target.value;
             onBranchChange(v === "all" ? "all" : Number(v));
           }}
-          disabled={branchesLoading}
+          disabled={branchesLoading || (branches.length === 1 && filterBranchId !== "all")}
         >
-          <option value="all">All Branches</option>
+          {!(branches.length === 1 && filterBranchId !== "all") && <option value="all">All Branches</option>}
           {branches.map((b) => (
             <option key={b.branch_id} value={b.branch_id}>
               {b.branch_name}

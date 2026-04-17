@@ -1,302 +1,179 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PlusCircle, ChefHat, Users, Activity, LayoutGrid } from "lucide-react";
-import DashboardLayout from "@/components/layout/DashboardLayout";
-import KitchenToolbar from "@/components/kitchen/KitchenToolbar";
-import StationGrid from "@/components/kitchen/StationGrid";
-import StaffList from "@/components/kitchen/StaffList";
-import StationModal from "@/components/kitchen/StationModal";
-import StaffModal from "@/components/kitchen/StaffModal";
-import AssignStaffModal from "@/components/kitchen/AssignStaffModal";
-import type { StatusFilter, KitchenView } from "@/components/kitchen/KitchenToolbar";
-import type { Branch } from "@/types/branch";
-import type {
-  KitchenStation,
-  KitchenStaff,
-  StationFormData,
-  StaffFormData,
-} from "@/types/kitchen";
 import {
-  getStations,
-  setStations,
-  getStaff,
-  setStaff,
-  generateDemoData,
-} from "@/lib/kitchenStorage";
-import { apiFetch } from "@/lib/auth-client";
+  ChefHat,
+  Clock3,
+  Loader2,
+  RefreshCw,
+  Search,
+  Store,
+} from "lucide-react";
+import DashboardLayout from "@/components/layout/DashboardLayout";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import type { AppRole } from "@/types/auth";
+import type { Order } from "@/types/order";
+
+function formatTime(ts: number) {
+  return new Date(ts).toLocaleTimeString("en-PK", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatElapsed(ms: number) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const mins = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${String(mins).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+type KitchenStatus = "Pending" | "Running" | "Served";
+
+const STATUS_STYLES: Record<KitchenStatus, string> = {
+  Pending: "bg-amber-50 text-amber-700 border-amber-100",
+  Running: "bg-blue-50 text-blue-700 border-blue-100",
+  Served: "bg-emerald-50 text-emerald-700 border-emerald-100",
+};
 
 export default function KitchenPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
-
-  /* ── API branches ── */
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(true);
-
-  /* ── localStorage data ── */
-  const [stations, setStationsState] = useState<KitchenStation[]>([]);
-  const [staff, setStaffState] = useState<KitchenStaff[]>([]);
-
-  /* ── Filters ── */
-  const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
+  const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const [sessionBranchName, setSessionBranchName] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<KitchenView>("stations");
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [nowTs, setNowTs] = useState(Date.now());
+  const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
 
-  /* ── Station modals ── */
-  const [stationModalOpen, setStationModalOpen] = useState(false);
-  const [editingStation, setEditingStation] = useState<KitchenStation | null>(null);
+  const canUpdateKitchenStatus =
+    sessionRole === "LIVE_KITCHEN" || sessionRole === "SUPER_ADMIN";
 
-  /* ── Staff modals ── */
-  const [staffModalOpen, setStaffModalOpen] = useState(false);
-  const [editingStaff, setEditingStaff] = useState<KitchenStaff | null>(null);
-
-  /* ── Assign staff modal ── */
-  const [assignModalOpen, setAssignModalOpen] = useState(false);
-  const [assignStation, setAssignStation] = useState<KitchenStation | null>(null);
-
-  /* ══════════════ Auth guard ══════════════ */
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") !== "true") {
+    const session = getAuthSession();
+    if (!session) {
       router.replace("/login");
-    } else {
-      setAuthorized(true);
+      return;
     }
+
+    const allowedRoles: AppRole[] = [
+      "SUPER_ADMIN",
+      "RESTAURANT_ADMIN",
+      "BRANCH_ADMIN",
+      "LIVE_KITCHEN",
+    ];
+    if (!allowedRoles.includes(session.role)) {
+      router.replace("/dashboard");
+      return;
+    }
+
+    setSessionRole(session.role);
+    setSessionBranchId(session.branchId ?? null);
+    setSessionBranchName(session.branchName ?? null);
+    setAuthorized(true);
   }, [router]);
 
-  /* ══════════════ Fetch branches ══════════════ */
-  const fetchBranches = useCallback(async () => {
-    setBranchesLoading(true);
+  const loadOrders = useCallback(
+    async (silent = false) => {
+      if (!authorized) return;
+      if (!silent) setLoading(true);
+      if (silent) setRefreshing(true);
+      setError("");
+      try {
+        const params = new URLSearchParams();
+        if (sessionBranchId) params.set("branchId", String(sessionBranchId));
+        const res = await apiFetch(`/api/orders?${params.toString()}`);
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(payload.error || "Failed to fetch kitchen orders");
+        }
+        const data = (await res.json()) as Order[];
+        const kitchenOrders = data.filter(
+          (o) =>
+            o.status === "Pending" ||
+            o.status === "Running" ||
+            o.status === "Served"
+        );
+        setOrders(kitchenOrders);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to fetch kitchen orders");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [authorized, sessionBranchId]
+  );
+
+  useEffect(() => {
+    if (!authorized) return;
+    void loadOrders();
+  }, [authorized, loadOrders]);
+
+  useEffect(() => {
+    if (!authorized) return;
+    const poll = setInterval(() => {
+      void loadOrders(true);
+    }, 10000);
+    return () => clearInterval(poll);
+  }, [authorized, loadOrders]);
+
+  useEffect(() => {
+    const tick = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  const handleStatusUpdate = async (
+    orderId: string,
+    status: "Running" | "Served"
+  ) => {
+    if (!canUpdateKitchenStatus) return;
+    setBusyOrderId(orderId);
+    setError("");
     try {
-      const res = await apiFetch("/api/branches");
-      if (!res.ok) throw new Error();
-      const data: Branch[] = await res.json();
-      setBranches(data.filter((b) => b.status === "Active"));
-    } catch {
-      // silent
+      const res = await apiFetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.error || "Failed to update kitchen status");
+      }
+      await loadOrders(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update kitchen status");
     } finally {
-      setBranchesLoading(false);
+      setBusyOrderId(null);
     }
-  }, []);
+  };
 
-  useEffect(() => {
-    if (authorized) fetchBranches();
-  }, [authorized, fetchBranches]);
-
-  /* ══════════════ Load / init localStorage ══════════════ */
-  useEffect(() => {
-    if (!authorized || branchesLoading) return;
-
-    let storedStations = getStations();
-    let storedStaff = getStaff();
-
-    if (storedStations.length === 0 && storedStaff.length === 0 && branches.length > 0) {
-      const demo = generateDemoData(
-        branches.map((b) => ({ branchId: b.branch_id, branchName: b.branch_name }))
+  const filteredOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((order) => {
+      const itemText = order.items
+        .map((i) => `${i.name} ${i.variationName ?? ""}`)
+        .join(" ")
+        .toLowerCase();
+      return (
+        order.orderNo.toLowerCase().includes(q) ||
+        (order.hall ?? "").toLowerCase().includes(q) ||
+        (order.table ?? "").toLowerCase().includes(q) ||
+        itemText.includes(q)
       );
-      storedStations = demo.stations;
-      storedStaff = demo.staff;
-      setStations(storedStations);
-      setStaff(storedStaff);
-    }
+    });
+  }, [orders, search]);
 
-    setStationsState(storedStations);
-    setStaffState(storedStaff);
-  }, [authorized, branchesLoading, branches]);
+  const pendingOrders = filteredOrders.filter((o) => o.status === "Pending");
+  const runningOrders = filteredOrders.filter((o) => o.status === "Running");
+  const servedOrders = filteredOrders.filter((o) => o.status === "Served");
 
-  /* ══════════════ Persist helpers ══════════════ */
-  const persistStations = useCallback((updated: KitchenStation[]) => {
-    setStationsState(updated);
-    setStations(updated);
-  }, []);
-
-  const persistStaff = useCallback((updated: KitchenStaff[]) => {
-    setStaffState(updated);
-    setStaff(updated);
-  }, []);
-
-  /* ══════════════ Filtered data ══════════════ */
-  const filteredStations = useMemo(() => {
-    let result = stations;
-    if (filterBranchId !== "all") result = result.filter((s) => s.branchId === filterBranchId);
-    if (statusFilter !== "all") result = result.filter((s) => s.status === statusFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      result = result.filter(
-        (s) =>
-          s.title.toLowerCase().includes(q) ||
-          s.code.toLowerCase().includes(q) ||
-          s.branchName.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [stations, filterBranchId, statusFilter, search]);
-
-  const filteredStaff = useMemo(() => {
-    let result = staff;
-    if (filterBranchId !== "all") result = result.filter((s) => s.branchId === filterBranchId);
-    if (statusFilter !== "all") result = result.filter((s) => s.status === statusFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      result = result.filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.role.toLowerCase().includes(q) ||
-          s.branchName.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [staff, filterBranchId, statusFilter, search]);
-
-  /* ══════════════ Stats (filtered by branch) ══════════════ */
-  const stats = useMemo(() => {
-    const branchStations =
-      filterBranchId === "all"
-        ? stations
-        : stations.filter((s) => s.branchId === filterBranchId);
-    const branchStaff =
-      filterBranchId === "all"
-        ? staff
-        : staff.filter((s) => s.branchId === filterBranchId);
-
-    return {
-      totalStations: branchStations.length,
-      activeStations: branchStations.filter((s) => s.status === "active").length,
-      totalStaff: branchStaff.length,
-      activeStaff: branchStaff.filter((s) => s.status === "active").length,
-    };
-  }, [stations, staff, filterBranchId]);
-
-  /* ══════════════ Station CRUD ══════════════ */
-  const openAddStation = () => {
-    setEditingStation(null);
-    setStationModalOpen(true);
-  };
-
-  const openEditStation = (station: KitchenStation) => {
-    setEditingStation(station);
-    setStationModalOpen(true);
-  };
-
-  const handleStationSave = (data: StationFormData) => {
-    const branchId = typeof data.branchId === "number" ? data.branchId : Number(data.branchId);
-    const branch = branches.find((b) => b.branch_id === branchId);
-
-    if (editingStation) {
-      const updated = stations.map((s) =>
-        s.id === editingStation.id
-          ? {
-              ...s,
-              title: data.title.trim(),
-              code: data.code.trim(),
-              printerName: data.printerName.trim() || undefined,
-              status: data.status,
-            }
-          : s
-      );
-      persistStations(updated);
-    } else {
-      const newStation: KitchenStation = {
-        id: (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`),
-        branchId,
-        branchName: branch?.branch_name ?? "",
-        title: data.title.trim(),
-        code: data.code.trim(),
-        printerName: data.printerName.trim() || undefined,
-        status: data.status,
-        staffIds: [],
-        createdAt: Date.now(),
-      };
-      persistStations([newStation, ...stations]);
-    }
-    setStationModalOpen(false);
-    setEditingStation(null);
-  };
-
-  const handleStationDelete = (station: KitchenStation) => {
-    if (!window.confirm(`Delete station "${station.title}" (${station.code})?`)) return;
-    persistStations(stations.filter((s) => s.id !== station.id));
-  };
-
-  /* ══════════════ Assign staff ══════════════ */
-  const openAssignStaff = (station: KitchenStation) => {
-    setAssignStation(station);
-    setAssignModalOpen(true);
-  };
-
-  const handleAssignSave = (staffIds: string[]) => {
-    if (!assignStation) return;
-    const updated = stations.map((s) =>
-      s.id === assignStation.id ? { ...s, staffIds } : s
-    );
-    persistStations(updated);
-    setAssignModalOpen(false);
-    setAssignStation(null);
-  };
-
-  const assignBranchStaff = useMemo(() => {
-    if (!assignStation) return [];
-    return staff.filter((s) => s.branchId === assignStation.branchId);
-  }, [staff, assignStation]);
-
-  /* ══════════════ Staff CRUD ══════════════ */
-  const openAddStaff = () => {
-    setEditingStaff(null);
-    setStaffModalOpen(true);
-  };
-
-  const openEditStaff = (s: KitchenStaff) => {
-    setEditingStaff(s);
-    setStaffModalOpen(true);
-  };
-
-  const handleStaffSave = (data: StaffFormData) => {
-    const branchId = typeof data.branchId === "number" ? data.branchId : Number(data.branchId);
-    const branch = branches.find((b) => b.branch_id === branchId);
-
-    if (editingStaff) {
-      const updated = staff.map((s) =>
-        s.id === editingStaff.id
-          ? {
-              ...s,
-              name: data.name.trim(),
-              role: data.role,
-              phone: data.phone.trim() || undefined,
-              status: data.status,
-            }
-          : s
-      );
-      persistStaff(updated);
-    } else {
-      const newStaff: KitchenStaff = {
-        id: (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`),
-        branchId,
-        branchName: branch?.branch_name ?? "",
-        name: data.name.trim(),
-        role: data.role,
-        phone: data.phone.trim() || undefined,
-        status: data.status,
-      };
-      persistStaff([newStaff, ...staff]);
-    }
-    setStaffModalOpen(false);
-    setEditingStaff(null);
-  };
-
-  const handleStaffDelete = (s: KitchenStaff) => {
-    if (!window.confirm(`Delete staff member "${s.name}"?`)) return;
-    // Also remove from all station assignments
-    const updatedStations = stations.map((st) => ({
-      ...st,
-      staffIds: st.staffIds.filter((id) => id !== s.id),
-    }));
-    persistStations(updatedStations);
-    persistStaff(staff.filter((x) => x.id !== s.id));
-  };
-
-  /* ══════════════ Loading ══════════════ */
   if (!authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -305,184 +182,212 @@ export default function KitchenPage() {
     );
   }
 
-  const noBranches = !branchesLoading && branches.length === 0;
-
-  /* ══════════════ Stat cards config ══════════════ */
-  const statCards = [
-    {
-      label: "Total Stations",
-      value: stats.totalStations,
-      icon: <LayoutGrid size={20} />,
-      bg: "bg-[#ff5a1f]/10",
-      color: "text-[#ff5a1f]",
-    },
-    {
-      label: "Active Stations",
-      value: stats.activeStations,
-      icon: <Activity size={20} />,
-      bg: "bg-green-50",
-      color: "text-green-600",
-    },
-    {
-      label: "Total Staff",
-      value: stats.totalStaff,
-      icon: <Users size={20} />,
-      bg: "bg-blue-50",
-      color: "text-blue-600",
-    },
-    {
-      label: "Active Staff",
-      value: stats.activeStaff,
-      icon: <ChefHat size={20} />,
-      bg: "bg-purple-50",
-      color: "text-purple-600",
-    },
-  ];
-
   return (
-    <DashboardLayout title="Kitchen">
-      {/* ── Page Header ── */}
+    <DashboardLayout title="Live Kitchen">
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800">
-              Kitchen Management
-            </h2>
+            <h2 className="text-2xl font-bold text-gray-800">Live Kitchen Board</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Manage kitchen stations, assign staff, and monitor activity across
-              branches
+              Monitor incoming branch orders and progress them through kitchen workflow.
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              {sessionBranchName
+                ? `Scoped to ${sessionBranchName}`
+                : "Scoped by your role permissions"}
             </p>
           </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {view === "staff" && (
-              <button
-                onClick={openAddStaff}
-                disabled={noBranches}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[#ff5a1f] text-[#ff5a1f] text-sm font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <PlusCircle size={16} />
-                + Add Staff
-              </button>
-            )}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search order, table, item..."
+                className="border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm w-64"
+              />
+            </div>
             <button
-              onClick={openAddStation}
-              disabled={noBranches}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => void loadOrders(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[#ff5a1f] text-[#ff5a1f] text-sm font-semibold hover:bg-[#ff5a1f]/5"
             >
-              <PlusCircle size={16} />
-              + Add Kitchen Station
+              <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+              Refresh
             </button>
           </div>
         </div>
-        {noBranches && (
-          <p className="text-xs text-red-500 mt-2">
-            Create an active branch first to add kitchen stations and staff.
-          </p>
-        )}
       </div>
 
-      {/* ── Stats Row ── */}
-      {!branchesLoading && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {statCards.map((s) => (
-            <div
-              key={s.label}
-              className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-3"
-            >
-              <div
-                className={`w-10 h-10 rounded-lg ${s.bg} flex items-center justify-center shrink-0 ${s.color}`}
-              >
-                {s.icon}
-              </div>
-              <div>
-                <p className="text-xl font-bold text-gray-800">{s.value}</p>
-                <p className="text-[11px] text-gray-400 font-medium">
-                  {s.label}
-                </p>
-              </div>
-            </div>
-          ))}
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
       )}
 
-      {/* ── Toolbar ── */}
-      <KitchenToolbar
-        branches={branches}
-        branchesLoading={branchesLoading}
-        filterBranchId={filterBranchId}
-        onBranchChange={setFilterBranchId}
-        statusFilter={statusFilter}
-        onStatusChange={setStatusFilter}
-        search={search}
-        onSearchChange={setSearch}
-        view={view}
-        onViewChange={setView}
-      />
-
-      {/* ── Content ── */}
-      {branchesLoading ? (
+      {loading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="animate-spin h-8 w-8 border-4 border-[#ff5a1f] border-t-transparent rounded-full" />
+          <Loader2 size={30} className="animate-spin text-[#ff5a1f]" />
         </div>
-      ) : view === "stations" ? (
-        <StationGrid
-          stations={filteredStations}
-          allStaff={staff}
-          onEdit={openEditStation}
-          onDelete={handleStationDelete}
-          onManageStaff={openAssignStaff}
-        />
       ) : (
-        <StaffList
-          staff={filteredStaff}
-          stations={stations}
-          loading={false}
-          onEdit={openEditStaff}
-          onDelete={handleStaffDelete}
-        />
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+          <KitchenColumn
+            title="Pending Orders"
+            status="Pending"
+            orders={pendingOrders}
+            nowTs={nowTs}
+            canUpdateKitchenStatus={canUpdateKitchenStatus}
+            busyOrderId={busyOrderId}
+            onMarkRunning={(id) => void handleStatusUpdate(id, "Running")}
+            onMarkServed={(id) => void handleStatusUpdate(id, "Served")}
+          />
+          <KitchenColumn
+            title="Running Orders"
+            status="Running"
+            orders={runningOrders}
+            nowTs={nowTs}
+            canUpdateKitchenStatus={canUpdateKitchenStatus}
+            busyOrderId={busyOrderId}
+            onMarkRunning={(id) => void handleStatusUpdate(id, "Running")}
+            onMarkServed={(id) => void handleStatusUpdate(id, "Served")}
+          />
+          <KitchenColumn
+            title="Served Orders"
+            status="Served"
+            orders={servedOrders}
+            nowTs={nowTs}
+            canUpdateKitchenStatus={canUpdateKitchenStatus}
+            busyOrderId={busyOrderId}
+            onMarkRunning={(id) => void handleStatusUpdate(id, "Running")}
+            onMarkServed={(id) => void handleStatusUpdate(id, "Served")}
+          />
+        </div>
       )}
-
-      {/* ── Station Modal ── */}
-      <StationModal
-        isOpen={stationModalOpen}
-        onClose={() => {
-          setStationModalOpen(false);
-          setEditingStation(null);
-        }}
-        onSave={handleStationSave}
-        editStation={editingStation}
-        activeBranches={branches}
-        showBranchSelect={filterBranchId === "all"}
-        currentBranchId={filterBranchId}
-        existingStations={stations}
-      />
-
-      {/* ── Staff Modal ── */}
-      <StaffModal
-        isOpen={staffModalOpen}
-        onClose={() => {
-          setStaffModalOpen(false);
-          setEditingStaff(null);
-        }}
-        onSave={handleStaffSave}
-        editStaff={editingStaff}
-        activeBranches={branches}
-        showBranchSelect={filterBranchId === "all"}
-        currentBranchId={filterBranchId}
-      />
-
-      {/* ── Assign Staff Modal ── */}
-      <AssignStaffModal
-        isOpen={assignModalOpen}
-        onClose={() => {
-          setAssignModalOpen(false);
-          setAssignStation(null);
-        }}
-        onSave={handleAssignSave}
-        station={assignStation}
-        branchStaff={assignBranchStaff}
-      />
     </DashboardLayout>
+  );
+}
+
+function KitchenColumn({
+  title,
+  status,
+  orders,
+  nowTs,
+  canUpdateKitchenStatus,
+  busyOrderId,
+  onMarkRunning,
+  onMarkServed,
+}: {
+  title: string;
+  status: KitchenStatus;
+  orders: Order[];
+  nowTs: number;
+  canUpdateKitchenStatus: boolean;
+  busyOrderId: string | null;
+  onMarkRunning: (id: string) => void;
+  onMarkServed: (id: string) => void;
+}) {
+  return (
+    <section className="bg-white rounded-xl border border-gray-100 shadow-sm">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ChefHat size={16} className="text-[#ff5a1f]" />
+          <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+        </div>
+        <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">
+          {orders.length}
+        </span>
+      </div>
+
+      <div className="p-3 space-y-3 max-h-[70vh] overflow-y-auto">
+        {orders.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-200 p-6 text-center text-xs text-gray-400">
+            No orders in this queue.
+          </div>
+        ) : (
+          orders.map((order) => {
+            const isBusy = busyOrderId === order.id;
+            return (
+              <article
+                key={order.id}
+                className="rounded-lg border border-gray-100 p-3 bg-gray-50/30"
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div>
+                    <p className="font-bold text-gray-800">{order.orderNo}</p>
+                    <p className="text-xs text-gray-500">{order.type}</p>
+                  </div>
+                  <span
+                    className={`text-xs px-2 py-1 rounded-full border ${STATUS_STYLES[status]}`}
+                  >
+                    {status}
+                  </span>
+                </div>
+
+                <div className="text-xs text-gray-500 space-y-1">
+                  <p className="inline-flex items-center gap-1">
+                    <Store size={12} />
+                    {order.branchName}
+                  </p>
+                  <p>
+                    {order.hall ? `Hall: ${order.hall}` : "Hall: -"}{" "}
+                    {order.table ? `| Table: ${order.table}` : ""}
+                  </p>
+                  <p className="inline-flex items-center gap-1">
+                    <Clock3 size={12} />
+                    Placed {formatTime(order.createdAt)} · Elapsed{" "}
+                    {formatElapsed(nowTs - order.createdAt)}
+                  </p>
+                </div>
+
+                <div className="mt-3 space-y-1.5">
+                  {order.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className="text-xs bg-white rounded border border-gray-100 px-2.5 py-2"
+                    >
+                      <p className="font-medium text-gray-700">
+                        {item.name}
+                        {item.variationName ? ` (${item.variationName})` : ""} x{item.qty}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {order.notes ? (
+                  <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-2.5 py-2">
+                    Note: {order.notes}
+                  </p>
+                ) : null}
+
+                {canUpdateKitchenStatus ? (
+                  <div className="mt-3 flex gap-2">
+                    {status === "Pending" && (
+                      <button
+                        onClick={() => onMarkRunning(order.id)}
+                        disabled={isBusy}
+                        className="flex-1 rounded-lg bg-blue-600 text-white text-xs font-semibold py-2 hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {isBusy ? "Updating..." : "Mark Running"}
+                      </button>
+                    )}
+                    {status === "Running" && (
+                      <button
+                        onClick={() => onMarkServed(order.id)}
+                        disabled={isBusy}
+                        className="flex-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold py-2 hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        {isBusy ? "Updating..." : "Mark Served"}
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })
+        )}
+      </div>
+    </section>
   );
 }

@@ -33,7 +33,7 @@ export interface ItemPerformance {
   revenue: number;
   avgPrice: number;
   branchBreakdown: { branchId: number; branchName: string; qty: number; revenue: number }[];
-  /** % change vs previous equal-length period (mock) */
+  /** % change vs previous equal-length period */
   trendPct: number;
   isActive: boolean;
 }

@@ -17,21 +17,18 @@ import KPICards from "@/components/sales-report/KPICards";
 import AccountingBreakdown from "@/components/sales-report/AccountingBreakdown";
 import DailySummaryTable from "@/components/sales-report/DailySummaryTable";
 import DailySummaryCards from "@/components/sales-report/DailySummaryCards";
-import {
-  generateReportOrders,
-  computeKPIs,
-  buildDailySummary,
-} from "@/lib/salesReportData";
 import { downloadReportCsv } from "@/lib/exportReportCsv";
 import type {
   ReportOrder,
+  ReportKPIs,
+  DailySummary,
   ReportBranch,
   TimeRange,
   SortField,
   SortDir,
 } from "@/types/salesReport";
 import type { Branch } from "@/types/branch";
-import { apiFetch } from "@/lib/auth-client";
+import { apiFetch, getAuthSession, getEffectiveBranchId } from "@/lib/auth-client";
 
 /* ── toast ── */
 interface Toast {
@@ -43,17 +40,6 @@ interface Toast {
 /* ── date utils ── */
 function toISO(d: Date) {
   return d.toISOString().slice(0, 10);
-}
-function startOfDay(s: string) {
-  return new Date(s + "T00:00:00").getTime();
-}
-function endOfDay(s: string) {
-  return new Date(s + "T23:59:59.999").getTime();
-}
-function daysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
 }
 function startOfWeek() {
   const d = new Date();
@@ -78,10 +64,33 @@ export default function SalesReportPage() {
   /* ── Branches (from API) ── */
   const [branches, setBranches] = useState<ReportBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
+  const [lockedBranchId, setLockedBranchId] = useState<number | null>(null);
 
   /* ── Data ── */
-  const [allOrders, setAllOrders] = useState<ReportOrder[]>([]);
+  const [orders, setOrders] = useState<ReportOrder[]>([]);
+  const [kpis, setKpis] = useState<ReportKPIs>({
+    grossSales: 0,
+    netRevenue: 0,
+    totalOrders: 0,
+    avgOrderValue: 0,
+    cashAmount: 0,
+    cashCount: 0,
+    cardAmount: 0,
+    cardCount: 0,
+    onlineAmount: 0,
+    onlineCount: 0,
+    creditAmount: 0,
+    creditCount: 0,
+    taxCollected: 0,
+    discountsGiven: 0,
+    discountCount: 0,
+    refundsAmount: 0,
+    refundCount: 0,
+    serviceCharges: 0,
+  });
+  const [dailyRows, setDailyRows] = useState<DailySummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   /* ── Filters ── */
   const [timeRange, setTimeRange] = useState<TimeRange>("this_month");
@@ -110,17 +119,21 @@ export default function SalesReportPage() {
     if (localStorage.getItem("isAuthenticated") !== "true") {
       router.replace("/login");
     } else {
+      const session = getAuthSession();
+      const effectiveBranch = getEffectiveBranchId(session);
+      const pinnedBranch = typeof effectiveBranch === "number" ? effectiveBranch : null;
+      setLockedBranchId(pinnedBranch);
+      if (pinnedBranch) setBranchId(pinnedBranch);
       setAuthorized(true);
     }
   }, [router]);
 
-  /* ══════════ Fetch branches from API + generate data ══════════ */
+  /* ══════════ Fetch branches from API ══════════ */
   useEffect(() => {
     if (!authorized) return;
     let cancelled = false;
 
-    const fetchAndGenerate = async () => {
-      setLoading(true);
+    const fetchBranches = async () => {
       setBranchesLoading(true);
 
       let activeBranches: ReportBranch[] = [];
@@ -138,16 +151,9 @@ export default function SalesReportPage() {
       if (cancelled) return;
       setBranches(activeBranches);
       setBranchesLoading(false);
-
-      setTimeout(() => {
-        if (!cancelled) {
-          setAllOrders(generateReportOrders(activeBranches));
-          setLoading(false);
-        }
-      }, 300);
     };
 
-    fetchAndGenerate();
+    fetchBranches();
     return () => { cancelled = true; };
   }, [authorized]);
 
@@ -180,47 +186,86 @@ export default function SalesReportPage() {
   /* ══════════ Clear ══════════ */
   const clearFilters = useCallback(() => {
     handleTimeRange("this_month");
-    setBranchId("all");
+    setBranchId(lockedBranchId ?? "all");
     setIncludeCancelled(false);
     setSortField(null);
-  }, [handleTimeRange]);
+  }, [handleTimeRange, lockedBranchId]);
 
-  const hasActive = branchId !== "all" || includeCancelled || timeRange !== "this_month";
+  const hasActive =
+    (!lockedBranchId && branchId !== "all") || includeCancelled || timeRange !== "this_month";
 
-  /* ══════════ Filtered orders ══════════ */
-  const filtered = useMemo(() => {
-    let list = allOrders;
+  useEffect(() => {
+    if (!authorized) return;
+    let cancelled = false;
 
-    // date range
-    if (dateFrom) list = list.filter((o) => o.createdAt >= startOfDay(dateFrom));
-    if (dateTo) list = list.filter((o) => o.createdAt <= endOfDay(dateTo));
+    const fetchReport = async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (branchId !== "all") params.set("branchId", String(branchId));
+        if (dateFrom) params.set("dateFrom", dateFrom);
+        if (dateTo) params.set("dateTo", dateTo);
+        params.set("includeCancelled", includeCancelled ? "true" : "false");
 
-    // branch
-    if (branchId !== "all") list = list.filter((o) => o.branchId === branchId);
+        const res = await apiFetch(`/api/reports/sales-report?${params.toString()}`);
+        if (!res.ok) throw new Error("Failed to fetch report");
+        const data = (await res.json()) as {
+          orders: ReportOrder[];
+          kpis: ReportKPIs;
+          dailyRows: DailySummary[];
+        };
+        if (!cancelled) {
+          setOrders(data.orders);
+          setKpis(data.kpis);
+          setDailyRows(data.dailyRows);
+        }
+      } catch {
+        if (!cancelled) {
+          setOrders([]);
+          setKpis({
+            grossSales: 0,
+            netRevenue: 0,
+            totalOrders: 0,
+            avgOrderValue: 0,
+            cashAmount: 0,
+            cashCount: 0,
+            cardAmount: 0,
+            cardCount: 0,
+            onlineAmount: 0,
+            onlineCount: 0,
+            creditAmount: 0,
+            creditCount: 0,
+            taxCollected: 0,
+            discountsGiven: 0,
+            discountCount: 0,
+            refundsAmount: 0,
+            refundCount: 0,
+            serviceCharges: 0,
+          });
+          setDailyRows([]);
+          pushToast("Failed to load report data");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
 
-    // cancelled
-    if (!includeCancelled) list = list.filter((o) => o.status !== "Cancelled");
+    fetchReport();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorized, branchId, dateFrom, dateTo, includeCancelled, pushToast, refreshTick]);
 
-    return list;
-  }, [allOrders, dateFrom, dateTo, branchId, includeCancelled]);
-
-  /* ══════════ KPIs ══════════ */
-  const kpis = useMemo(() => computeKPIs(filtered), [filtered]);
-
-  /* ══════════ Daily summary (sorted) ══════════ */
-  const dailyRows = useMemo(() => {
-    const rows = buildDailySummary(filtered);
-
-    if (sortField) {
-      const mult = sortDir === "asc" ? 1 : -1;
-      rows.sort((a, b) => {
-        if (sortField === "date") return a.date.localeCompare(b.date) * mult;
-        return (a.net - b.net) * mult;
-      });
-    }
-
+  const sortedDailyRows = useMemo(() => {
+    const rows = [...dailyRows];
+    if (!sortField) return rows;
+    const mult = sortDir === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      if (sortField === "date") return a.date.localeCompare(b.date) * mult;
+      return (a.net - b.net) * mult;
+    });
     return rows;
-  }, [filtered, sortField, sortDir]);
+  }, [dailyRows, sortField, sortDir]);
 
   /* ── Sort handler ── */
   const handleSort = (field: SortField) => {
@@ -234,20 +279,16 @@ export default function SalesReportPage() {
 
   /* ── Export ── */
   const handleExportCsv = () => {
-    downloadReportCsv(kpis, dailyRows, `sales-report-${toISO(new Date())}.csv`);
-    pushToast(`Exported ${dailyRows.length} daily rows to CSV`);
+    downloadReportCsv(kpis, sortedDailyRows, `sales-report-${toISO(new Date())}.csv`);
+    pushToast(`Exported ${sortedDailyRows.length} daily rows to CSV`);
   };
   const handleExportPdf = () => {
     window.print();
     pushToast("Print dialog opened");
   };
   const handleRefresh = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setAllOrders(generateReportOrders(branches));
-      setLoading(false);
-      pushToast("Report data refreshed");
-    }, 300);
+    setRefreshTick((p) => p + 1);
+    pushToast("Report data refreshed");
   };
 
   /* ══════════ Auth loading ══════════ */
@@ -331,6 +372,7 @@ export default function SalesReportPage() {
         onDateToChange={setDateTo}
         branchId={branchId}
         onBranchChange={setBranchId}
+        lockBranchId={lockedBranchId}
         includeCancelled={includeCancelled}
         onIncludeCancelledChange={setIncludeCancelled}
         onClear={clearFilters}
@@ -349,7 +391,7 @@ export default function SalesReportPage() {
             <p className="text-xs text-gray-400">
               Filtered results:{" "}
               <span className="font-semibold text-gray-600">
-                {filtered.length} orders, {fmtPkr(kpis.grossSales)} gross
+                {orders.length} orders, {fmtPkr(kpis.grossSales)} gross
               </span>
             </p>
           </div>
@@ -366,7 +408,7 @@ export default function SalesReportPage() {
             <h3 className="text-sm font-bold text-gray-700">Daily Summary</h3>
           </div>
 
-          {dailyRows.length === 0 ? (
+          {sortedDailyRows.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
               <div className="px-6 py-16 flex flex-col items-center gap-3 text-center">
                 <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
@@ -387,7 +429,7 @@ export default function SalesReportPage() {
             <>
               <div className="hidden md:block">
                 <DailySummaryTable
-                  rows={dailyRows}
+                  rows={sortedDailyRows}
                   loading={false}
                   sortField={sortField}
                   sortDir={sortDir}
@@ -395,7 +437,7 @@ export default function SalesReportPage() {
                 />
               </div>
               <div className="md:hidden">
-                <DailySummaryCards rows={dailyRows} />
+                <DailySummaryCards rows={sortedDailyRows} />
               </div>
             </>
           )}

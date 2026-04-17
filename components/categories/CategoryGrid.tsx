@@ -37,12 +37,15 @@ interface CategoryGridProps {
   groups: { branchName: string; branchId: number; categories: Category[] }[];
   onEditCategory: (cat: Category, branchId: number) => void;
   onDeleteCategory: (catId: number, branchId: number, catName: string) => void;
+  /** Hide edit/delete actions (multi-branch Restaurant Admin view). */
+  readOnly?: boolean;
 }
 
 const CategoryGrid: React.FC<CategoryGridProps> = ({
   groups,
   onEditCategory,
   onDeleteCategory,
+  readOnly = false,
 }) => {
   if (groups.length === 0) {
     return (
@@ -73,22 +76,24 @@ const CategoryGrid: React.FC<CategoryGridProps> = ({
                 className="relative group rounded-xl border border-gray-100 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all p-4"
               >
                 {/* Action buttons */}
-                <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                  <button
-                    className="p-1 rounded-md text-gray-400 hover:bg-gray-100 hover:text-[#ff5a1f] transition-all cursor-pointer"
-                    onClick={() => onEditCategory(cat, g.branchId)}
-                    title="Edit category"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    className="p-1 rounded-md text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all cursor-pointer"
-                    onClick={() => onDeleteCategory(cat.id, g.branchId, cat.name)}
-                    title="Delete category"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                {!readOnly && (
+                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    <button
+                      className="p-1 rounded-md text-gray-400 hover:bg-gray-100 hover:text-[#ff5a1f] transition-all cursor-pointer"
+                      onClick={() => onEditCategory(cat, g.branchId)}
+                      title="Edit category"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      className="p-1 rounded-md text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all cursor-pointer"
+                      onClick={() => onDeleteCategory(cat.id, g.branchId, cat.name)}
+                      title="Delete category"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-3 mb-2">
                   <div className="w-10 h-10 rounded-lg bg-[#ff5a1f]/10 flex items-center justify-center shrink-0">

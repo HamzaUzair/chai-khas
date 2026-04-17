@@ -10,14 +10,9 @@ import MenuSalesTable from "@/components/menu-sales/MenuSalesTable";
 import MenuSalesCardList from "@/components/menu-sales/MenuSalesCardList";
 import MenuSalesItemModal from "@/components/menu-sales/MenuSalesItemModal";
 import type { ItemPerformance, MSTimeRange, MSSortField, MSSortDir, MSBranch } from "@/types/menuSales";
-import {
-  MS_BRANCHES,
-  MS_CATEGORIES,
-  aggregateItemPerformance,
-} from "@/lib/menuSalesData";
 import { downloadMenuSalesCsv } from "@/lib/exportMenuSalesCsv";
 import type { Branch } from "@/types/branch";
-import { apiFetch } from "@/lib/auth-client";
+import { apiFetch, getAuthSession, getEffectiveBranchId } from "@/lib/auth-client";
 
 /* ── date helpers ── */
 function todayRange(): [string, string] {
@@ -37,28 +32,28 @@ function monthRange(): [string, string] {
   const first = new Date(now.getFullYear(), now.getMonth(), 1);
   return [first.toISOString().slice(0, 10), now.toISOString().slice(0, 10)];
 }
-function toEpochStart(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").getTime();
-}
-function toEpochEnd(dateStr: string) {
-  return new Date(dateStr + "T23:59:59.999").getTime();
-}
-
 export default function MenuSalesPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [lockedBranchId, setLockedBranchId] = useState<number | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   /* ── auth guard ── */
   useEffect(() => {
     if (localStorage.getItem("isAuthenticated") !== "true") {
       router.replace("/login");
     } else {
+      const session = getAuthSession();
+      const effectiveBranch = getEffectiveBranchId(session);
+      const pinnedBranch = typeof effectiveBranch === "number" ? effectiveBranch : null;
+      setLockedBranchId(pinnedBranch);
+      if (pinnedBranch) setBranchId(pinnedBranch);
       setAuthorized(true);
     }
   }, [router]);
 
-  /* ── branches (try API, fall back to mock) ── */
-  const [branches, setBranches] = useState<MSBranch[]>(MS_BRANCHES);
+  /* ── branches from API ── */
+  const [branches, setBranches] = useState<MSBranch[]>([]);
   const [branchesReady, setBranchesReady] = useState(false);
 
   useEffect(() => {
@@ -66,18 +61,21 @@ export default function MenuSalesPage() {
     let cancelled = false;
 
     (async () => {
+      let active: MSBranch[] = [];
       try {
         const res = await apiFetch("/api/branches");
         if (!res.ok) throw new Error();
         const data: Branch[] = await res.json();
-        const active = data
+        active = data
           .filter((b) => b.status === "Active")
           .map((b) => ({ id: b.branch_id, name: b.branch_name }));
-        if (!cancelled && active.length > 0) setBranches(active);
       } catch {
-        // keep mock branches
+        active = [];
       } finally {
-        if (!cancelled) setBranchesReady(true);
+        if (!cancelled) {
+          setBranches(active);
+          setBranchesReady(true);
+        }
       }
     })();
 
@@ -91,9 +89,11 @@ export default function MenuSalesPage() {
   const [dateFrom, setDateFrom] = useState(() => monthRange()[0]);
   const [dateTo, setDateTo] = useState(() => monthRange()[1]);
   const [branchId, setBranchId] = useState<number | "all">("all");
+  const [categories, setCategories] = useState<string[]>([]);
   const [category, setCategory] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
+  const [loadingRows, setLoadingRows] = useState(false);
 
   /* ── sorting ── */
   const [sortField, setSortField] = useState<MSSortField>("soldQty");
@@ -131,30 +131,75 @@ export default function MenuSalesPage() {
     []
   );
 
-  /* ── aggregate ── */
-  const rows = useMemo(() => {
-    if (!branchesReady && !authorized) return [];
-    const res = aggregateItemPerformance({
-      branchId,
-      category,
-      dateFrom: toEpochStart(dateFrom),
-      dateTo: toEpochEnd(dateTo),
-      search,
-      activeOnly,
-    });
+  /* ── rows (real DB) ── */
+  const [rows, setRows] = useState<ItemPerformance[]>([]);
 
-    // sort
+  useEffect(() => {
+    if (!authorized || !branchesReady) return;
+    let cancelled = false;
+
+    const fetchRows = async () => {
+      setLoadingRows(true);
+      try {
+        const params = new URLSearchParams();
+        if (branchId !== "all") params.set("branchId", String(branchId));
+        if (category !== "all") params.set("category", category);
+        if (dateFrom) params.set("dateFrom", dateFrom);
+        if (dateTo) params.set("dateTo", dateTo);
+        if (search.trim()) params.set("search", search.trim());
+        params.set("activeOnly", activeOnly ? "true" : "false");
+
+        const res = await apiFetch(`/api/reports/menu-sales?${params.toString()}`);
+        if (!res.ok) throw new Error("Failed to fetch menu sales");
+        const data = (await res.json()) as ItemPerformance[];
+        if (!cancelled) {
+          setRows(data);
+          const cats = Array.from(new Set(data.map((row) => row.category))).sort((a, b) =>
+            a.localeCompare(b)
+          );
+          setCategories(cats);
+          if (category !== "all" && !cats.includes(category)) setCategory("all");
+        }
+      } catch {
+        if (!cancelled) {
+          setRows([]);
+          setCategories([]);
+          showToast("Failed to load menu sales data");
+        }
+      } finally {
+        if (!cancelled) setLoadingRows(false);
+      }
+    };
+
+    fetchRows();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authorized,
+    branchesReady,
+    branchId,
+    category,
+    dateFrom,
+    dateTo,
+    search,
+    activeOnly,
+    refreshTick,
+    showToast,
+  ]);
+
+  const sortedRows = useMemo(() => {
+    const res = [...rows];
     res.sort((a, b) => {
       const diff = sortDir === "desc" ? b[sortField] - a[sortField] : a[sortField] - b[sortField];
       if (diff !== 0) return diff;
-      // secondary sort by the other field
       const sec: MSSortField = sortField === "soldQty" ? "revenue" : "soldQty";
       return b[sec] - a[sec];
     });
-
     return res;
-  }, [branchId, category, dateFrom, dateTo, search, activeOnly, sortField, sortDir, branchesReady, authorized]);
+  }, [rows, sortDir, sortField]);
 
+  /* ── clear all filters ── */
   /* ── sort toggle ── */
   const handleSort = useCallback(
     (f: MSSortField) => {
@@ -174,18 +219,18 @@ export default function MenuSalesPage() {
     const [f, t] = monthRange();
     setDateFrom(f);
     setDateTo(t);
-    setBranchId("all");
+    setBranchId(lockedBranchId ?? "all");
     setCategory("all");
     setSearch("");
     setActiveOnly(true);
     setSortField("soldQty");
     setSortDir("desc");
     showToast("Filters cleared!");
-  }, [showToast]);
+  }, [lockedBranchId, showToast]);
 
   /* ── has active filters? ── */
   const hasActiveFilter =
-    branchId !== "all" ||
+    (!lockedBranchId && branchId !== "all") ||
     category !== "all" ||
     search !== "" ||
     !activeOnly ||
@@ -224,7 +269,7 @@ export default function MenuSalesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => {
-                downloadMenuSalesCsv(rows);
+                downloadMenuSalesCsv(sortedRows);
                 showToast("CSV exported!", "success");
               }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors cursor-pointer shadow-sm"
@@ -243,7 +288,10 @@ export default function MenuSalesPage() {
               Export PDF
             </button>
             <button
-              onClick={() => showToast("Refreshed!")}
+              onClick={() => {
+                setRefreshTick((p) => p + 1);
+                showToast("Refreshed!");
+              }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm"
             >
               <RefreshCw size={16} />
@@ -256,7 +304,7 @@ export default function MenuSalesPage() {
       {/* ── filters ── */}
       <MenuSalesFilters
         branches={branches}
-        categories={MS_CATEGORIES}
+        categories={categories}
         timeRange={timeRange}
         onTimeRangeChange={handleTimeRange}
         dateFrom={dateFrom}
@@ -265,6 +313,7 @@ export default function MenuSalesPage() {
         onDateToChange={setDateTo}
         branchId={branchId}
         onBranchChange={setBranchId}
+        lockBranchId={lockedBranchId}
         category={category}
         onCategoryChange={setCategory}
         search={search}
@@ -276,12 +325,12 @@ export default function MenuSalesPage() {
       />
 
       {/* ── KPI strip ── */}
-      <MenuSalesKPIStrip rows={rows} />
+      <MenuSalesKPIStrip rows={sortedRows} />
 
       {/* ── info line ── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-4 text-sm text-gray-500 font-medium">
         <span>
-          Showing <strong className="text-gray-700">{rows.length}</strong> items
+          Showing <strong className="text-gray-700">{sortedRows.length}</strong> items
         </span>
         {filterDesc.length > 0 && (
           <>
@@ -294,12 +343,12 @@ export default function MenuSalesPage() {
       </div>
 
       {/* ── table / cards ── */}
-      {!branchesReady ? (
+      {!branchesReady || loadingRows ? (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-6 py-16 flex items-center justify-center gap-3">
           <Loader2 size={24} className="text-[#ff5a1f] animate-spin" />
           <p className="text-sm text-gray-400">Loading data…</p>
         </div>
-      ) : rows.length === 0 ? (
+      ) : sortedRows.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
           <div className="px-6 py-16 flex flex-col items-center gap-3 text-center">
             <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
@@ -322,7 +371,7 @@ export default function MenuSalesPage() {
           {/* Desktop table */}
           <div className="hidden md:block">
             <MenuSalesTable
-              rows={rows}
+              rows={sortedRows}
               loading={false}
               sortField={sortField}
               sortDir={sortDir}
@@ -334,7 +383,7 @@ export default function MenuSalesPage() {
 
           {/* Mobile card list */}
           <div className="md:hidden">
-            <MenuSalesCardList rows={rows} onView={setModalItem} />
+            <MenuSalesCardList rows={sortedRows} onView={setModalItem} />
           </div>
         </>
       )}

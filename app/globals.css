@@ -3,6 +3,9 @@
 :root {
   --background: #f3f4f6;
   --foreground: #111827;
+  --scrollbar-track: #e5e7eb;
+  --scrollbar-thumb: #94a3b8;
+  --scrollbar-thumb-hover: #64748b;
 }
 
 @theme inline {
@@ -20,6 +23,9 @@ body {
 html.theme-dark {
   --background: #020617;
   --foreground: #e5e7eb;
+  --scrollbar-track: #0b1220;
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
 }
 
 html.theme-dark body {
@@ -107,6 +113,36 @@ html.theme-dark .deal-item-row {
 
 html.theme-dark .deal-item-name {
   color: #f8fafc !important;
+}
+
+/* Global themed scrollbars (Chromium + Firefox) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 2px solid var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
 }
 
 /* Toast slide-in animation */

@@ -2,21 +2,34 @@
 
 export type UserRole =
   | "SUPER_ADMIN"
+  | "RESTAURANT_ADMIN"
   | "BRANCH_ADMIN"
   | "ORDER_TAKER"
   | "CASHIER"
-  | "ACCOUNTANT";
+  | "ACCOUNTANT"
+  | "LIVE_KITCHEN";
 
-export const ADMIN_USER_ROLES: UserRole[] = ["SUPER_ADMIN", "BRANCH_ADMIN"];
-export const STAFF_USER_ROLES: UserRole[] = ["ORDER_TAKER", "CASHIER", "ACCOUNTANT"];
+export const ADMIN_USER_ROLES: UserRole[] = [
+  "SUPER_ADMIN",
+  "RESTAURANT_ADMIN",
+  "BRANCH_ADMIN",
+];
+export const STAFF_USER_ROLES: UserRole[] = [
+  "ORDER_TAKER",
+  "CASHIER",
+  "ACCOUNTANT",
+  "LIVE_KITCHEN",
+];
 export const USER_ROLES: UserRole[] = [...ADMIN_USER_ROLES, ...STAFF_USER_ROLES];
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
-  SUPER_ADMIN: "Super Admin",
+  SUPER_ADMIN: "Platform Admin",
+  RESTAURANT_ADMIN: "Restaurant Admin",
   BRANCH_ADMIN: "Branch Admin",
   ORDER_TAKER: "Order Taker",
   CASHIER: "Cashier",
   ACCOUNTANT: "Accountant",
+  LIVE_KITCHEN: "Live Kitchen",
 };
 
 export function getRoleLabel(role: string): string {
@@ -29,6 +42,8 @@ export interface AppUser {
   username: string;
   fullName: string;
   role: UserRole;
+  restaurantId: number | null;
+  restaurantName: string;
   branchId: number | null;
   branchName: string;
   branchCode: string;
@@ -43,6 +58,7 @@ export interface UserFormData {
   password: string;
   confirmPassword: string;
   role: UserRole | "";
+  restaurantId: number | "";
   branchId: number | "";
   terminal: string;
   status: "Active" | "Inactive";

@@ -1,47 +1,125 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { AuthError, requireAuth, requireSuperAdmin } from "@/lib/server-auth";
+import {
+  AuthError,
+  assertBranchWithinRestaurant,
+  normalizeRole,
+  requireAuth,
+} from "@/lib/server-auth";
 
 type ApiUserRole =
   | "SUPER_ADMIN"
+  | "RESTAURANT_ADMIN"
   | "BRANCH_ADMIN"
   | "ORDER_TAKER"
   | "CASHIER"
-  | "ACCOUNTANT";
+  | "ACCOUNTANT"
+  | "LIVE_KITCHEN";
 
-const STAFF_ROLES: ApiUserRole[] = ["ORDER_TAKER", "CASHIER", "ACCOUNTANT"];
+const STAFF_ROLES: ApiUserRole[] = [
+  "ORDER_TAKER",
+  "CASHIER",
+  "ACCOUNTANT",
+  "LIVE_KITCHEN",
+];
+/** Roles that must be pinned to a specific branch at creation time. */
+const BRANCH_PINNED_ROLES: ApiUserRole[] = [
+  "BRANCH_ADMIN",
+  ...STAFF_ROLES,
+];
 
-function normalizeRole(role?: string): ApiUserRole {
-  const normalized = role?.toUpperCase();
-  if (normalized === "SUPER_ADMIN") return "SUPER_ADMIN";
-  if (normalized === "ORDER_TAKER") return "ORDER_TAKER";
-  if (normalized === "CASHIER") return "CASHIER";
-  if (normalized === "ACCOUNTANT") return "ACCOUNTANT";
-  return "BRANCH_ADMIN";
+function canManageRole(
+  authRole: ApiUserRole,
+  targetRole: ApiUserRole,
+  restaurantHasMultipleBranches: boolean | null
+) {
+  if (authRole === "SUPER_ADMIN") return targetRole === "RESTAURANT_ADMIN";
+  if (authRole === "RESTAURANT_ADMIN") {
+    if (restaurantHasMultipleBranches === true) {
+      // Head office can only assign Branch Admin in multi-branch mode.
+      return targetRole === "BRANCH_ADMIN";
+    }
+    // Single-branch Restaurant Admin can manage branch staff.
+    return STAFF_ROLES.includes(targetRole);
+  }
+  if (authRole === "BRANCH_ADMIN") {
+    return STAFF_ROLES.includes(targetRole);
+  }
+  return false;
 }
 
-function canManageRole(authRole: ApiUserRole, targetRole: ApiUserRole) {
-  if (authRole === "SUPER_ADMIN") return true;
-  if (authRole === "BRANCH_ADMIN") return STAFF_ROLES.includes(targetRole);
-  return false;
+function serializeUser(u: {
+  id: number;
+  username: string;
+  fullname: string | null;
+  role: string;
+  restaurant_id: number | null;
+  branch_id: number | null;
+  status: string;
+  terminal: number;
+  created_at: Date;
+  restaurant: { restaurant_id: number; name: string } | null;
+  branch: {
+    branch_id: number;
+    branch_name: string;
+    branch_code: string;
+  } | null;
+}) {
+  return {
+    id: String(u.id),
+    userId: u.id,
+    username: u.username,
+    fullName: u.fullname ?? "",
+    role: normalizeRole(u.role),
+    restaurantId: u.restaurant_id,
+    restaurantName: u.restaurant?.name ?? "",
+    branchId: u.branch_id,
+    branchName: u.branch?.branch_name ?? "No Branch",
+    branchCode: u.branch?.branch_code ?? "—",
+    status: u.status === "Inactive" ? ("Inactive" as const) : ("Active" as const),
+    terminal: u.terminal,
+    createdAt: new Date(u.created_at).getTime(),
+  };
 }
 
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
-    if (auth.role !== "SUPER_ADMIN" && auth.role !== "BRANCH_ADMIN") {
+    if (
+      auth.role !== "SUPER_ADMIN" &&
+      auth.role !== "RESTAURANT_ADMIN" &&
+      auth.role !== "BRANCH_ADMIN"
+    ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const restaurantFilter = searchParams.get("restaurantId");
+
+    const raManageableRoles: ApiUserRole[] =
+      auth.restaurantHasMultipleBranches === true
+        ? ["BRANCH_ADMIN"]
+        : STAFF_ROLES;
+    const where =
+      auth.role === "BRANCH_ADMIN"
+        ? {
+            restaurant_id: auth.restaurantId ?? -1,
+            branch_id: auth.branchId ?? -1,
+            role: { in: STAFF_ROLES },
+          }
+        : auth.role === "RESTAURANT_ADMIN"
+        ? {
+            restaurant_id: auth.restaurantId ?? -1,
+            role: { in: raManageableRoles },
+          }
+        : restaurantFilter && restaurantFilter !== "all"
+        ? { restaurant_id: Number(restaurantFilter), role: "RESTAURANT_ADMIN" }
+        : { role: "RESTAURANT_ADMIN" };
+
     const users = await prisma.user.findMany({
-      where:
-        auth.role === "BRANCH_ADMIN"
-          ? {
-              branch_id: auth.branchId ?? -1,
-              role: { in: STAFF_ROLES },
-            }
-          : undefined,
+      where,
       include: {
+        restaurant: { select: { restaurant_id: true, name: true } },
         branch: {
           select: { branch_id: true, branch_name: true, branch_code: true },
         },
@@ -49,21 +127,7 @@ export async function GET(request: NextRequest) {
       orderBy: { created_at: "desc" },
     });
 
-    return NextResponse.json(
-      users.map((u) => ({
-        id: String(u.id),
-        userId: u.id,
-        username: u.username,
-        fullName: u.fullname ?? "",
-        role: normalizeRole(u.role),
-        branchId: u.branch_id,
-        branchName: u.branch?.branch_name ?? "No Branch",
-        branchCode: u.branch?.branch_code ?? "—",
-        status: u.status === "Inactive" ? "Inactive" : "Active",
-        terminal: u.terminal,
-        createdAt: new Date(u.created_at).getTime(),
-      }))
-    );
+    return NextResponse.json(users.map(serializeUser));
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
@@ -76,7 +140,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
-    if (auth.role !== "SUPER_ADMIN" && auth.role !== "BRANCH_ADMIN") {
+    if (
+      auth.role !== "SUPER_ADMIN" &&
+      auth.role !== "RESTAURANT_ADMIN" &&
+      auth.role !== "BRANCH_ADMIN"
+    ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -85,10 +153,17 @@ export async function POST(request: NextRequest) {
     const fullName = String(body.fullName ?? "").trim();
     const password = String(body.password ?? "");
     const role = normalizeRole(body.role);
-    const requestedBranchId =
-      body.branchId === "" || body.branchId === null ? null : Number(body.branchId);
     const terminal = Math.max(1, Number(body.terminal) || 1);
     const status = body.status === "Inactive" ? "Inactive" : "Active";
+
+    const requestedRestaurantId =
+      body.restaurantId === "" || body.restaurantId === null || body.restaurantId === undefined
+        ? null
+        : Number(body.restaurantId);
+    const requestedBranchId =
+      body.branchId === "" || body.branchId === null || body.branchId === undefined
+        ? null
+        : Number(body.branchId);
 
     if (!username || !password || !fullName) {
       return NextResponse.json(
@@ -96,16 +171,88 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!canManageRole(auth.role, role)) {
-      return NextResponse.json({ error: "You cannot create this role" }, { status: 403 });
+    if (
+      !canManageRole(auth.role, role, auth.restaurantHasMultipleBranches)
+    ) {
+      return NextResponse.json(
+        { error: "You cannot create this role" },
+        { status: 403 }
+      );
     }
 
-    const branchId = auth.role === "BRANCH_ADMIN" ? auth.branchId : requestedBranchId;
-    if (role !== "SUPER_ADMIN" && !branchId) {
-      return NextResponse.json(
-        { error: "This role must have an assigned branch" },
-        { status: 400 }
-      );
+    /* Resolve target tenant scope */
+    let restaurantId: number | null = null;
+    let branchId: number | null = null;
+
+    if (role === "RESTAURANT_ADMIN") {
+      // only Super Admin reaches here; restaurant is required
+      if (!requestedRestaurantId) {
+        return NextResponse.json(
+          { error: "Restaurant is required for Restaurant Admin" },
+          { status: 400 }
+        );
+      }
+      const restaurant = await prisma.restaurant.findUnique({
+        where: { restaurant_id: requestedRestaurantId },
+      });
+      if (!restaurant) {
+        return NextResponse.json(
+          { error: "Restaurant not found" },
+          { status: 404 }
+        );
+      }
+      restaurantId = requestedRestaurantId;
+      branchId = null;
+    } else {
+      // Non-platform roles can be created by tenant admins only.
+      if (auth.role !== "RESTAURANT_ADMIN" && auth.role !== "BRANCH_ADMIN") {
+        return NextResponse.json(
+          { error: "Platform Admin can create Restaurant Admin accounts only" },
+          { status: 403 }
+        );
+      }
+      restaurantId = auth.restaurantId!;
+
+      if (BRANCH_PINNED_ROLES.includes(role)) {
+        if (auth.role === "BRANCH_ADMIN") {
+          if (!auth.branchId) {
+            return NextResponse.json(
+              { error: "Branch assignment missing" },
+              { status: 403 }
+            );
+          }
+          if (requestedBranchId && requestedBranchId !== auth.branchId) {
+            return NextResponse.json(
+              { error: "You cannot assign users to another branch" },
+              { status: 403 }
+            );
+          }
+          branchId = auth.branchId;
+        } else if (!requestedBranchId) {
+          return NextResponse.json(
+            { error: "Branch is required for this role" },
+            { status: 400 }
+          );
+        } else {
+          const branch = await prisma.branch.findUnique({
+            where: { branch_id: requestedBranchId },
+          });
+          if (!branch) {
+            return NextResponse.json(
+              { error: "Branch not found" },
+              { status: 404 }
+            );
+          }
+          if (branch.restaurant_id !== restaurantId) {
+            return NextResponse.json(
+              { error: "Branch does not belong to the selected restaurant" },
+              { status: 400 }
+            );
+          }
+          await assertBranchWithinRestaurant(auth, requestedBranchId);
+          branchId = requestedBranchId;
+        }
+      }
     }
 
     const existing = await prisma.user.findFirst({
@@ -113,7 +260,10 @@ export async function POST(request: NextRequest) {
       select: { id: true },
     });
     if (existing) {
-      return NextResponse.json({ error: "Username already exists" }, { status: 409 });
+      return NextResponse.json(
+        { error: "Username already exists" },
+        { status: 409 }
+      );
     }
 
     const created = await prisma.user.create({
@@ -122,33 +272,20 @@ export async function POST(request: NextRequest) {
         fullname: fullName,
         password,
         role,
-        branch_id: role === "SUPER_ADMIN" ? null : branchId ?? null,
+        restaurant_id: restaurantId,
+        branch_id: branchId,
         terminal,
         status,
       },
       include: {
+        restaurant: { select: { restaurant_id: true, name: true } },
         branch: {
           select: { branch_id: true, branch_name: true, branch_code: true },
         },
       },
     });
 
-    return NextResponse.json(
-      {
-        id: String(created.id),
-        userId: created.id,
-        username: created.username,
-        fullName: created.fullname ?? "",
-        role: normalizeRole(created.role),
-        branchId: created.branch_id,
-        branchName: created.branch?.branch_name ?? "No Branch",
-        branchCode: created.branch?.branch_code ?? "—",
-        status: created.status === "Inactive" ? "Inactive" : "Active",
-        terminal: created.terminal,
-        createdAt: new Date(created.created_at).getTime(),
-      },
-      { status: 201 }
-    );
+    return NextResponse.json(serializeUser(created), { status: 201 });
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
@@ -157,4 +294,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to create user" }, { status: 500 });
   }
 }
-

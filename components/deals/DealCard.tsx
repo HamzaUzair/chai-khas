@@ -12,13 +12,14 @@ import React, { useMemo, useState } from "react";
  } from "lucide-react";
  import type { Deal } from "@/types/deal";
 
- interface DealCardProps {
-   deal: Deal;
-   onEdit: (deal: Deal) => void;
-   onDelete: (deal: Deal) => void;
- }
+interface DealCardProps {
+  deal: Deal;
+  onEdit: (deal: Deal) => void;
+  onDelete: (deal: Deal) => void;
+  readOnly?: boolean;
+}
 
- const DealCard: React.FC<DealCardProps> = ({ deal, onEdit, onDelete }) => {
+const DealCard: React.FC<DealCardProps> = ({ deal, onEdit, onDelete, readOnly = false }) => {
   const [showAllItems, setShowAllItems] = useState(false);
 
    const hasMore = deal.items.length > 3;
@@ -35,22 +36,24 @@ import React, { useMemo, useState } from "react";
            <BadgePercent size={14} />
            {deal.type}
          </span>
-         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-           <button
-             onClick={() => onEdit(deal)}
-             className="p-1.5 rounded-lg text-gray-400 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors cursor-pointer"
-             title="Edit deal"
-           >
-             <Pencil size={14} />
-           </button>
-           <button
-             onClick={() => onDelete(deal)}
-             className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
-             title="Delete deal"
-           >
-             <Trash2 size={14} />
-           </button>
-         </div>
+        {!readOnly && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={() => onEdit(deal)}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors cursor-pointer"
+              title="Edit deal"
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              onClick={() => onDelete(deal)}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+              title="Delete deal"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        )}
        </div>
 
        {/* Deal name + description */}

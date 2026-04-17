@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  buildBranchScopeFilter,
+  requireAuth,
+} from "@/lib/server-auth";
+import type { Prisma } from "@prisma/client";
 
 type IncomingDealItem = {
   id?: string;
@@ -71,21 +77,10 @@ export async function GET(request: NextRequest) {
     const statusParam = searchParams.get("status");
     const searchParam = searchParams.get("search")?.trim();
 
-    const where: {
-      branch_id?: number;
-      status?: "Active" | "Draft";
-      OR?: Array<{ name?: { contains: string; mode: "insensitive" } }>;
-    } = {};
-
     const requestedBranchId =
       branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
-    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
-    if (scopedBranchId) {
-      where.branch_id = scopedBranchId;
-    } else if (branchIdParam && branchIdParam !== "all") {
-      const branchId = Number(branchIdParam);
-      if (!Number.isNaN(branchId)) where.branch_id = branchId;
-    }
+    const scope = await buildBranchScopeFilter(auth, requestedBranchId);
+    const where: Prisma.DealWhereInput = { ...(scope as Prisma.DealWhereInput) };
     if (statusParam === "active" || statusParam === "inactive") {
       where.status = statusParam === "active" ? "Active" : "Draft";
     }
@@ -140,6 +135,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage deals" },
+        { status: 403 }
+      );
+    }
     const body = await request.json();
     const { name, type, description, branchId, price, status, items } = body as {
       name?: string;
@@ -185,7 +186,7 @@ export async function POST(request: NextRequest) {
     if (!branch) {
       return NextResponse.json({ error: "Branch not found" }, { status: 404 });
     }
-    assertBranchAccess(auth, branch.branch_id);
+    await assertBranchWriteAccess(auth, branch.branch_id);
 
     const normalizedItems = items
       .map((item) => ({

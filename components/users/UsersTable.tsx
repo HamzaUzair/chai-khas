@@ -17,10 +17,12 @@ import { getRoleLabel } from "@/types/user";
 /* ── Role badge colours ── */
 const ROLE_BADGE: Record<UserRole, string> = {
   SUPER_ADMIN: "bg-purple-50 text-purple-700",
-  BRANCH_ADMIN: "bg-blue-50 text-blue-700",
+  RESTAURANT_ADMIN: "bg-blue-50 text-blue-700",
+  BRANCH_ADMIN: "bg-sky-50 text-sky-700",
   ORDER_TAKER: "bg-orange-50 text-orange-700",
   CASHIER: "bg-emerald-50 text-emerald-700",
   ACCOUNTANT: "bg-indigo-50 text-indigo-700",
+  LIVE_KITCHEN: "bg-rose-50 text-rose-700",
 };
 
 function fmtDate(ts: number) {
@@ -61,7 +63,7 @@ const UsersTable: React.FC<UsersTableProps> = ({ users, loading, onEdit, onDelet
         <table className="w-full text-sm min-w-[920px]">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50/90 border-b border-gray-100">
-              {["ID", "Username", "Full Name", "Role", "Branch", "Status", "Terminal", "Created", "Actions"].map(
+              {["ID", "Username", "Full Name", "Role", "Restaurant", "Branch", "Status", "Terminal", "Created", "Actions"].map(
                 (col) => (
                   <th
                     key={col}
@@ -106,6 +108,14 @@ const UsersTable: React.FC<UsersTableProps> = ({ users, loading, onEdit, onDelet
                   >
                     <Shield size={11} />
                     {getRoleLabel(user.role)}
+                  </span>
+                </td>
+
+                {/* Restaurant */}
+                <td className="px-5 py-3.5 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                    <Building2 size={13} className="text-gray-400" />
+                    {user.restaurantName || "—"}
                   </span>
                 </td>
 

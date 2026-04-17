@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  buildBranchScopeFilter,
+  requireAuth,
+} from "@/lib/server-auth";
+import type { Prisma } from "@prisma/client";
 
 /* ── GET /api/dishes ── */
 export async function GET(request: NextRequest) {
@@ -13,31 +19,16 @@ export async function GET(request: NextRequest) {
     const statusParam = searchParams.get("status"); // "active" | "inactive" | omit for all
     const searchParam = searchParams.get("search")?.trim();
 
-    const where: {
-      category_id?: number;
-      category?: { name: string };
-      branch_id?: number;
-      is_available?: number;
-      OR?: Array<
-        | { name: { contains: string; mode: "insensitive" } }
-        | { description: { contains: string; mode: "insensitive" } }
-      >;
-    } = {};
+    const requestedBranchId =
+      branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
+    const scope = await buildBranchScopeFilter(auth, requestedBranchId);
+    const where: Prisma.MenuItemWhereInput = { ...(scope as Prisma.MenuItemWhereInput) };
 
     if (categoryIdParam) {
       const categoryId = parseInt(categoryIdParam, 10);
       if (!isNaN(categoryId)) where.category_id = categoryId;
     } else if (categoryNameParam) {
       where.category = { name: categoryNameParam };
-    }
-    const requestedBranchId =
-      branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
-    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
-    if (scopedBranchId) {
-      where.branch_id = scopedBranchId;
-    } else if (branchIdParam && branchIdParam !== "all") {
-      const branchId = parseInt(branchIdParam, 10);
-      if (!isNaN(branchId)) where.branch_id = branchId;
     }
     if (statusParam === "active") where.is_available = 1;
     else if (statusParam === "inactive") where.is_available = 0;
@@ -185,7 +176,7 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
-    assertBranchAccess(auth, branch.branch_id);
+    await assertBranchWriteAccess(auth, branch.branch_id);
 
     const dish = await prisma.menuItem.create({
       data: {

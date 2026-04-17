@@ -1,20 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { normalizeRole } from "@/lib/server-auth";
 
 const DEFAULT_SUPER_ADMIN_USERNAME = "sdmain@gmail.com";
 const DEFAULT_SUPER_ADMIN_PASSWORD = "Asdf0010";
-
-function normalizeRole(
-  role?: string
-): "SUPER_ADMIN" | "BRANCH_ADMIN" | "ORDER_TAKER" | "CASHIER" | "ACCOUNTANT" {
-  const normalized = role?.toUpperCase();
-  if (normalized === "SUPER_ADMIN") return "SUPER_ADMIN";
-  if (normalized === "ORDER_TAKER") return "ORDER_TAKER";
-  if (normalized === "CASHIER") return "CASHIER";
-  if (normalized === "ACCOUNTANT") return "ACCOUNTANT";
-  return "BRANCH_ADMIN";
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,21 +24,39 @@ export async function POST(request: NextRequest) {
         username: { equals: identifier, mode: "insensitive" },
       },
       include: {
+        restaurant: {
+          select: {
+            restaurant_id: true,
+            name: true,
+            has_multiple_branches: true,
+          },
+        },
         branch: { select: { branch_id: true, branch_name: true } },
       },
     });
 
-    if (!user && identifier === DEFAULT_SUPER_ADMIN_USERNAME && password === DEFAULT_SUPER_ADMIN_PASSWORD) {
+    if (
+      !user &&
+      identifier === DEFAULT_SUPER_ADMIN_USERNAME &&
+      password === DEFAULT_SUPER_ADMIN_PASSWORD
+    ) {
       user = await prisma.user.create({
         data: {
           username: DEFAULT_SUPER_ADMIN_USERNAME,
           password: DEFAULT_SUPER_ADMIN_PASSWORD,
-          fullname: "Super Admin",
+          fullname: "Platform Admin",
           role: "SUPER_ADMIN",
           status: "Active",
           terminal: 1,
         },
         include: {
+          restaurant: {
+            select: {
+              restaurant_id: true,
+              name: true,
+              has_multiple_branches: true,
+            },
+          },
           branch: { select: { branch_id: true, branch_name: true } },
         },
       });
@@ -62,9 +70,28 @@ export async function POST(request: NextRequest) {
     }
 
     const role = normalizeRole(user.role);
-    if (role !== "SUPER_ADMIN" && !user.branch_id) {
+    if (role === "RESTAURANT_ADMIN" && !user.restaurant_id) {
+      return NextResponse.json(
+        { error: "User has no assigned restaurant" },
+        { status: 403 }
+      );
+    }
+    if (
+      (role === "BRANCH_ADMIN" ||
+        role === "ORDER_TAKER" ||
+        role === "CASHIER" ||
+        role === "ACCOUNTANT" ||
+        role === "LIVE_KITCHEN") &&
+      !user.branch_id
+    ) {
       return NextResponse.json(
         { error: "User has no assigned branch" },
+        { status: 403 }
+      );
+    }
+    if (role === "BRANCH_ADMIN" && !user.restaurant_id) {
+      return NextResponse.json(
+        { error: "User has no assigned restaurant" },
         { status: 403 }
       );
     }
@@ -80,6 +107,10 @@ export async function POST(request: NextRequest) {
       username: user.username,
       fullName: user.fullname ?? user.username,
       role,
+      restaurantId: user.restaurant_id ?? null,
+      restaurantName: user.restaurant?.name ?? null,
+      restaurantHasMultipleBranches:
+        user.restaurant?.has_multiple_branches ?? null,
       branchId: user.branch_id ?? null,
       branchName: user.branch?.branch_name ?? null,
       terminal: user.terminal,
@@ -90,4 +121,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Login failed" }, { status: 500 });
   }
 }
-

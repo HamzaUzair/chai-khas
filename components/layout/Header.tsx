@@ -22,7 +22,9 @@ const Header: React.FC<HeaderProps> = ({ title, onMenuToggle }) => {
 
   const roleLabel =
     session?.role === "SUPER_ADMIN"
-      ? "Super Admin"
+      ? "Platform Admin"
+      : session?.role === "RESTAURANT_ADMIN"
+      ? "Restaurant Admin"
       : session?.role === "BRANCH_ADMIN"
       ? "Branch Admin"
       : session?.role === "ORDER_TAKER"
@@ -31,7 +33,26 @@ const Header: React.FC<HeaderProps> = ({ title, onMenuToggle }) => {
       ? "Cashier"
       : session?.role === "ACCOUNTANT"
       ? "Accountant"
+      : session?.role === "LIVE_KITCHEN"
+      ? "Live Kitchen"
       : "User";
+
+  const scopeSuffix = session
+    ? session.role === "SUPER_ADMIN"
+      ? ""
+      : session.role === "RESTAURANT_ADMIN"
+      ? session.restaurantName
+        ? ` · ${session.restaurantName}`
+        : ""
+      : session.role === "BRANCH_ADMIN"
+      ? [session.restaurantName, session.branchName]
+          .filter(Boolean)
+          .map((part) => ` · ${part}`)
+          .join("")
+      : session.branchName
+      ? ` · ${session.branchName}`
+      : ""
+    : "";
 
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
@@ -55,8 +76,8 @@ const Header: React.FC<HeaderProps> = ({ title, onMenuToggle }) => {
           </div>
           <span className="hidden sm:block text-sm font-medium text-gray-700">
             {session
-              ? `${session.fullName} (${roleLabel}${session.branchName ? ` · ${session.branchName}` : ""})`
-              : "Super Admin"}
+              ? `${session.fullName} (${roleLabel}${scopeSuffix})`
+              : "Platform Admin"}
           </span>
         </div>
 

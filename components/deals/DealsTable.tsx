@@ -9,13 +9,14 @@
  } from "lucide-react";
  import type { Deal } from "@/types/deal";
 
- interface DealsTableProps {
-   deals: Deal[];
-   onEdit: (deal: Deal) => void;
-   onDelete: (deal: Deal) => void;
- }
+interface DealsTableProps {
+  deals: Deal[];
+  onEdit: (deal: Deal) => void;
+  onDelete: (deal: Deal) => void;
+  readOnly?: boolean;
+}
 
- const DealsTable: React.FC<DealsTableProps> = ({ deals, onEdit, onDelete }) => {
+const DealsTable: React.FC<DealsTableProps> = ({ deals, onEdit, onDelete, readOnly = false }) => {
    if (deals.length === 0) {
      return (
        <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
@@ -37,8 +38,11 @@
          <table className="w-full text-sm min-w-[760px]">
            <thead>
              <tr className="bg-gray-50/80 border-b border-gray-100">
-               {["Deal", "Type", "Branch", "Price", "Status", "Actions"].map(
-                 (col) => (
+              {(readOnly
+                ? ["Deal", "Type", "Branch", "Price", "Status"]
+                : ["Deal", "Type", "Branch", "Price", "Status", "Actions"]
+              ).map(
+                (col) => (
                    <th
                      key={col}
                      className="text-left px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider"
@@ -90,25 +94,27 @@
                      {deal.status === "active" ? "● Active" : "○ Inactive"}
                    </span>
                  </td>
-                 <td className="px-5 py-3.5 whitespace-nowrap">
-                   <div className="flex items-center gap-1.5">
-                     <button
-                       onClick={() => onEdit(deal)}
-                       className="p-2 rounded-lg text-gray-400 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors cursor-pointer"
-                       title="Edit"
-                     >
-                       <Pencil size={15} />
-                     </button>
-                     <button
-                       onClick={() => onDelete(deal)}
-                       className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
-                       title="Delete"
-                     >
-                       <Trash2 size={15} />
-                     </button>
-                   </div>
-                 </td>
-               </tr>
+                {!readOnly && (
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => onEdit(deal)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors cursor-pointer"
+                        title="Edit"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(deal)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                        title="Delete"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </td>
+                )}
+              </tr>
              ))}
            </tbody>
          </table>

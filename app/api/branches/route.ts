@@ -1,18 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { AuthError, getScopedBranchId, requireAuth, requireSuperAdmin } from "@/lib/server-auth";
+import {
+  AuthError,
+  getScopedRestaurantId,
+  requireAuth,
+} from "@/lib/server-auth";
 
-/* ── GET /api/branches ── */
+/* ── GET /api/branches ──
+ *   Super Admin    → all branches (optional ?restaurantId= filter)
+ *   Restaurant Admin → branches of their restaurant
+ *   Staff          → their single assigned branch
+ */
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
-    const scopedBranchId = getScopedBranchId(auth, null);
+    const { searchParams } = new URL(request.url);
+    const requestedRestaurantIdParam = searchParams.get("restaurantId");
+    const requestedRestaurantId =
+      requestedRestaurantIdParam && requestedRestaurantIdParam !== "all"
+        ? Number(requestedRestaurantIdParam)
+        : null;
+
+    const scopedRestaurantId = getScopedRestaurantId(auth, requestedRestaurantId);
+
+    const where: { restaurant_id?: number; branch_id?: number } = {};
+    if (scopedRestaurantId) where.restaurant_id = scopedRestaurantId;
+
+    // branch-scoped roles (Branch Admin + staff) see only their branch
+    if (
+      auth.role === "BRANCH_ADMIN" ||
+      auth.role === "ORDER_TAKER" ||
+      auth.role === "CASHIER" ||
+      auth.role === "ACCOUNTANT"
+    ) {
+      if (!auth.branchId) {
+        throw new AuthError("Branch assignment missing", 403);
+      }
+      where.branch_id = auth.branchId;
+    }
 
     const branches = await prisma.branch.findMany({
-      where: scopedBranchId ? { branch_id: scopedBranchId } : undefined,
+      where,
       orderBy: { created_at: "desc" },
+      include: {
+        restaurant: { select: { restaurant_id: true, name: true, slug: true } },
+        users: {
+          where: { role: "BRANCH_ADMIN", status: "Active" },
+          select: {
+            id: true,
+            username: true,
+            fullname: true,
+          },
+          orderBy: { created_at: "asc" },
+          take: 1,
+        },
+      },
     });
-    return NextResponse.json(branches);
+
+    return NextResponse.json(
+      branches.map((b) => {
+        const admin = b.users[0] ?? null;
+        return {
+          branch_id: b.branch_id,
+          branch_name: b.branch_name,
+          branch_code: b.branch_code,
+          restaurant_id: b.restaurant_id,
+          restaurant_name: b.restaurant?.name ?? null,
+          address: b.address,
+          city: b.city,
+          status: b.status,
+          branch_admin: admin
+            ? {
+                user_id: admin.id,
+                username: admin.username,
+                full_name: admin.fullname ?? admin.username,
+              }
+            : null,
+          created_at: b.created_at.toISOString(),
+          updated_at: b.updated_at.toISOString(),
+        };
+      })
+    );
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
@@ -25,16 +93,23 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/* ── POST /api/branches ── */
+/* ── POST /api/branches ──
+ *   Super Admin: can create a branch in any restaurant (restaurant_id required)
+ *   Restaurant Admin: can create branches only in their own restaurant
+ */
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
-    requireSuperAdmin(auth);
+    if (auth.role !== "SUPER_ADMIN" && auth.role !== "RESTAURANT_ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const body = await request.json();
-    const { branch_name, branch_code, address, phone, email, status } = body;
+    const { branch_name, branch_code, address, city, status } = body;
+    const requestedRestaurantId = body.restaurant_id
+      ? Number(body.restaurant_id)
+      : null;
 
-    // Validate required fields
     if (!branch_name?.trim()) {
       return NextResponse.json(
         { error: "Branch name is required" },
@@ -47,8 +122,75 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (!address?.trim()) {
+      return NextResponse.json(
+        { error: "Complete address is required" },
+        { status: 400 }
+      );
+    }
+    if (!city?.trim()) {
+      return NextResponse.json(
+        { error: "City is required" },
+        { status: 400 }
+      );
+    }
 
-    // Check for duplicate branch_code
+    let restaurantId: number;
+    if (auth.role === "RESTAURANT_ADMIN") {
+      if (!auth.restaurantId) {
+        return NextResponse.json({ error: "Restaurant missing" }, { status: 403 });
+      }
+      restaurantId = auth.restaurantId;
+    } else {
+      if (!requestedRestaurantId || Number.isNaN(requestedRestaurantId)) {
+        return NextResponse.json(
+          { error: "Restaurant is required" },
+          { status: 400 }
+        );
+      }
+      const restaurant = await prisma.restaurant.findUnique({
+        where: { restaurant_id: requestedRestaurantId },
+      });
+      if (!restaurant) {
+        return NextResponse.json(
+          { error: "Restaurant not found" },
+          { status: 404 }
+        );
+      }
+      restaurantId = restaurant.restaurant_id;
+    }
+
+    // ── Single-branch tenant guard ─────────────────────────────────────
+    // Restaurants flagged as single-branch are not allowed to hold more
+    // than one branch. The Restaurant Admin UI hides branch creation for
+    // them; this is the backend guarantee in case anyone crafts the call
+    // manually (or for Super Admin acting on behalf of a tenant).
+    const targetRestaurant = await prisma.restaurant.findUnique({
+      where: { restaurant_id: restaurantId },
+      select: {
+        has_multiple_branches: true,
+        _count: { select: { branches: true } },
+      },
+    });
+    if (!targetRestaurant) {
+      return NextResponse.json(
+        { error: "Restaurant not found" },
+        { status: 404 }
+      );
+    }
+    if (
+      targetRestaurant.has_multiple_branches === false &&
+      targetRestaurant._count.branches >= 1
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "This restaurant is configured as single-branch. Enable \"Has Multiple Branches\" on the restaurant before adding another branch.",
+        },
+        { status: 403 }
+      );
+    }
+
     const existing = await prisma.branch.findUnique({
       where: { branch_code: branch_code.trim() },
     });
@@ -63,14 +205,31 @@ export async function POST(request: NextRequest) {
       data: {
         branch_name: branch_name.trim(),
         branch_code: branch_code.trim(),
-        address: address?.trim() || null,
-        phone: phone?.trim() || null,
-        email: email?.trim() || null,
+        restaurant_id: restaurantId,
+        address: address.trim(),
+        city: city.trim(),
         status: status === "Inactive" ? "Inactive" : "Active",
+      },
+      include: {
+        restaurant: { select: { restaurant_id: true, name: true } },
       },
     });
 
-    return NextResponse.json(branch, { status: 201 });
+    return NextResponse.json(
+      {
+        branch_id: branch.branch_id,
+        branch_name: branch.branch_name,
+        branch_code: branch.branch_code,
+        restaurant_id: branch.restaurant_id,
+        restaurant_name: branch.restaurant?.name ?? null,
+        address: branch.address,
+        city: branch.city,
+        status: branch.status,
+        created_at: branch.created_at.toISOString(),
+        updated_at: branch.updated_at.toISOString(),
+      },
+      { status: 201 }
+    );
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

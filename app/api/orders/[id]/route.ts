@@ -1,0 +1,294 @@
+import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { AuthError, assertBranchAccess, requireAuth } from "@/lib/server-auth";
+
+const ALLOWED_KITCHEN_STATUSES = new Set(["Running", "Served"]);
+const ALLOWED_CASHIER_PAYMENT_METHODS = new Set([
+  "Cash",
+  "Online",
+  "Card",
+  "Bank Transfer",
+  "Easypaisa",
+  "JazzCash",
+]);
+const ALLOWED_DISCOUNT_TYPES = new Set(["Fixed Amount", "Percentage"]);
+const DISCOUNT_META_TAG = "[DISCOUNT_META]";
+const BILLING_META_TAG = "[BILLING_META]";
+const SERVICE_CHARGE_PERCENT = 5;
+const DEFAULT_GST_PERCENT = 3;
+
+function stripBillingMeta(rawComments: string | null | undefined): string {
+  if (!rawComments) return "";
+  const billingIdx = rawComments.indexOf(BILLING_META_TAG);
+  if (billingIdx >= 0) return rawComments.slice(0, billingIdx).trim();
+  const idx = rawComments.indexOf(DISCOUNT_META_TAG);
+  if (idx < 0) return rawComments.trim();
+  return rawComments.slice(0, idx).trim();
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const auth = await requireAuth(request);
+    const { id } = await params;
+    const orderId = Number(id);
+
+    if (Number.isNaN(orderId)) {
+      return NextResponse.json({ error: "Invalid order id" }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const nextStatus = String(body?.status ?? "").trim();
+    const paymentMethod = String(body?.paymentMethod ?? "").trim();
+    const discountType = String(body?.discountType ?? "").trim();
+    const discountValueRaw = Number(body?.discountValue ?? 0);
+    const discountReason = String(body?.discountReason ?? "").trim();
+    const gstPercentRaw = Number(body?.gstPercent ?? DEFAULT_GST_PERCENT);
+
+    const existing = await prisma.order.findUnique({
+      where: { order_id: orderId },
+      select: {
+        order_id: true,
+        branch_id: true,
+        order_status: true,
+        g_total_amount: true,
+        net_total_amount: true,
+        discount_amount: true,
+        service_charge: true,
+        comments: true,
+      },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    await assertBranchAccess(auth, existing.branch_id);
+
+    const isKitchenTransition = ALLOWED_KITCHEN_STATUSES.has(nextStatus);
+    const isCashierTransition = nextStatus === "Paid";
+
+    if (!isKitchenTransition && !isCashierTransition) {
+      return NextResponse.json(
+        { error: "Status transition not allowed" },
+        { status: 400 }
+      );
+    }
+
+    if (isKitchenTransition) {
+      if (auth.role !== "LIVE_KITCHEN" && auth.role !== "SUPER_ADMIN") {
+        return NextResponse.json(
+          { error: "Only Live Kitchen can update kitchen status" },
+          { status: 403 }
+        );
+      }
+      if (existing.order_status !== "Pending" && existing.order_status !== "Running") {
+        return NextResponse.json(
+          {
+            error:
+              "Only Pending/Running orders can be moved through kitchen workflow",
+          },
+          { status: 400 }
+        );
+      }
+      if (nextStatus === "Running" && existing.order_status !== "Pending") {
+        return NextResponse.json(
+          { error: "Only Pending orders can be marked Running" },
+          { status: 400 }
+        );
+      }
+      if (nextStatus === "Served" && existing.order_status !== "Running") {
+        return NextResponse.json(
+          { error: "Only Running orders can be marked Served" },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (isCashierTransition) {
+      if (auth.role !== "CASHIER" && auth.role !== "SUPER_ADMIN") {
+        return NextResponse.json(
+          { error: "Only Cashier can mark orders as Paid" },
+          { status: 403 }
+        );
+      }
+      if (existing.order_status !== "Served") {
+        return NextResponse.json(
+          { error: "Only Served orders can be marked Paid" },
+          { status: 400 }
+        );
+      }
+      if (!ALLOWED_CASHIER_PAYMENT_METHODS.has(paymentMethod)) {
+        return NextResponse.json(
+          { error: "Select a valid payment method" },
+          { status: 400 }
+        );
+      }
+
+      if (!Number.isFinite(discountValueRaw) || discountValueRaw < 0) {
+        return NextResponse.json(
+          { error: "Discount value must be a valid non-negative number" },
+          { status: 400 }
+        );
+      }
+      if (!Number.isFinite(gstPercentRaw) || gstPercentRaw < 0) {
+        return NextResponse.json(
+          { error: "GST must be a valid non-negative number" },
+          { status: 400 }
+        );
+      }
+      if (gstPercentRaw > 100) {
+        return NextResponse.json(
+          { error: "GST percentage cannot exceed 100" },
+          { status: 400 }
+        );
+      }
+    }
+
+    const safeSubtotal = Math.max(0, Number(existing.g_total_amount));
+    let discountAmount = 0;
+    let normalizedDiscountType: "Fixed Amount" | "Percentage" | null = null;
+    let normalizedDiscountValue = 0;
+
+    if (isCashierTransition && discountValueRaw > 0) {
+      if (!ALLOWED_DISCOUNT_TYPES.has(discountType)) {
+        return NextResponse.json(
+          { error: "Select a valid discount type" },
+          { status: 400 }
+        );
+      }
+      normalizedDiscountType = discountType as "Fixed Amount" | "Percentage";
+      normalizedDiscountValue = discountValueRaw;
+
+      if (normalizedDiscountType === "Percentage") {
+        if (discountValueRaw > 100) {
+          return NextResponse.json(
+            { error: "Percentage discount cannot exceed 100" },
+            { status: 400 }
+          );
+        }
+        discountAmount = (safeSubtotal * discountValueRaw) / 100;
+      } else {
+        discountAmount = discountValueRaw;
+      }
+
+      if (discountAmount > safeSubtotal) {
+        return NextResponse.json(
+          { error: "Discount cannot exceed subtotal" },
+          { status: 400 }
+        );
+      }
+      if (!discountReason) {
+        return NextResponse.json(
+          { error: "Discount reason is required when discount is applied" },
+          { status: 400 }
+        );
+      }
+    }
+
+    const discountedSubtotal = Math.max(0, safeSubtotal - Number(discountAmount));
+    const serviceChargeAmount = (discountedSubtotal * SERVICE_CHARGE_PERCENT) / 100;
+    const normalizedGstPercent = isCashierTransition ? gstPercentRaw : DEFAULT_GST_PERCENT;
+    const gstAmount =
+      ((discountedSubtotal + serviceChargeAmount) * normalizedGstPercent) / 100;
+    const finalTotal = discountedSubtotal + serviceChargeAmount + gstAmount;
+    if (isCashierTransition && finalTotal < 0) {
+      return NextResponse.json(
+        { error: "Final total cannot be negative" },
+        { status: 400 }
+      );
+    }
+
+    const baseNotes = stripBillingMeta(existing.comments);
+    const commentsWithMeta =
+      isCashierTransition
+        ? `${baseNotes}${
+            baseNotes ? "\n" : ""
+          }${BILLING_META_TAG}${JSON.stringify({
+            discountType: discountAmount > 0 ? normalizedDiscountType : null,
+            discountValue: discountAmount > 0 ? normalizedDiscountValue : 0,
+            discountReason: discountAmount > 0 ? discountReason : null,
+            serviceChargePercent: SERVICE_CHARGE_PERCENT,
+            serviceChargeAmount,
+            gstPercent: normalizedGstPercent,
+            gstAmount,
+            subtotal: safeSubtotal,
+          })}`
+        : baseNotes || null;
+
+    const updated = await prisma.order.update({
+      where: { order_id: orderId },
+      data: {
+        order_status: nextStatus,
+        ...(isCashierTransition
+          ? {
+              payment_mode: paymentMethod,
+              discount_amount: new Prisma.Decimal(discountAmount),
+              service_charge: new Prisma.Decimal(serviceChargeAmount),
+              net_total_amount: new Prisma.Decimal(finalTotal),
+              comments: commentsWithMeta,
+            }
+          : {}),
+      },
+      select: {
+        order_id: true,
+        order_status: true,
+        payment_mode: true,
+        discount_amount: true,
+        net_total_amount: true,
+      },
+    });
+
+    if (isCashierTransition) {
+      await prisma.payment.create({
+        data: {
+          order_id: updated.order_id,
+          branch_id: existing.branch_id,
+          amount: new Prisma.Decimal(updated.net_total_amount),
+          method:
+            paymentMethod === "Cash"
+              ? "CASH"
+              : paymentMethod === "Card"
+              ? "CARD"
+              : paymentMethod === "Bank Transfer"
+              ? "BANK_TRANSFER"
+              : paymentMethod === "Easypaisa"
+              ? "EASYPaisa"
+              : paymentMethod === "JazzCash"
+              ? "JAZZCash"
+              : "BANK_TRANSFER",
+          status: "PAID",
+          reference: `ORD-${updated.order_id}`,
+          created_by_id: auth.id,
+        },
+      });
+    }
+
+    return NextResponse.json({
+      id: String(updated.order_id),
+      status: updated.order_status,
+      paymentMode: updated.payment_mode,
+      discountAmount: Number(updated.discount_amount),
+      discountType: normalizedDiscountType,
+      discountValue: normalizedDiscountValue,
+      discountReason: discountAmount > 0 ? discountReason : null,
+      subtotal: safeSubtotal,
+      serviceChargePercent: SERVICE_CHARGE_PERCENT,
+      serviceChargeAmount,
+      gstPercent: normalizedGstPercent,
+      gstAmount,
+      finalTotal: Number(updated.net_total_amount),
+    });
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    console.error("PATCH /api/orders/[id] error:", err);
+    return NextResponse.json(
+      { error: "Failed to update order status" },
+      { status: 500 }
+    );
+  }
+}

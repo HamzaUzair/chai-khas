@@ -15,6 +15,7 @@ import OrdersTable from "@/components/orders/OrdersTable";
 import OrderCardList from "@/components/orders/OrderCardList";
 import OrderDetailsModal from "@/components/orders/OrderDetailsModal";
 import PaidReceiptModal from "@/components/orders/PaidReceiptModal";
+import CashierPaymentModal from "@/components/orders/CashierPaymentModal";
 import type { Branch } from "@/types/branch";
 import type { AppRole } from "@/types/auth";
 import type { Order, OrderStatus } from "@/types/order";
@@ -43,6 +44,7 @@ export default function OrdersPage() {
   /* ── Modals ── */
   const [viewOrder, setViewOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [payOrder, setPayOrder] = useState<Order | null>(null);
 
   /* ══════════════ Auth guard ══════════════ */
   useEffect(() => {
@@ -50,13 +52,22 @@ export default function OrdersPage() {
     if (!session) {
       router.replace("/login");
     } else {
+      if (session.role === "ORDER_TAKER") {
+        router.replace("/create-order");
+        return;
+      }
       setSessionRole(session.role);
       setSessionBranchId(session.branchId ?? null);
       if (
-        (session.role === "BRANCH_ADMIN" || session.role === "ORDER_TAKER") &&
+        (session.role === "RESTAURANT_ADMIN" ||
+          session.role === "BRANCH_ADMIN" ||
+          session.role === "CASHIER") &&
         session.branchId
       ) {
         setFilterBranchId(session.branchId);
+      }
+      if (session.role === "CASHIER") {
+        setStatusFilter("Served");
       }
       setAuthorized(true);
     }
@@ -86,7 +97,10 @@ export default function OrdersPage() {
     try {
       const params = new URLSearchParams();
       const effectiveBranchId =
-        (sessionRole === "BRANCH_ADMIN" || sessionRole === "ORDER_TAKER") && sessionBranchId
+        (sessionRole === "ORDER_TAKER" ||
+          sessionRole === "BRANCH_ADMIN" ||
+          sessionRole === "CASHIER") &&
+        sessionBranchId
           ? sessionBranchId
           : filterBranchId;
       if (effectiveBranchId !== "all") params.set("branchId", String(effectiveBranchId));
@@ -143,7 +157,7 @@ export default function OrdersPage() {
     return {
       total: todayOrders.length,
       running: todayOrders.filter((o) => o.status === "Running").length,
-      complete: todayOrders.filter((o) => o.status === "Complete").length,
+      paid: todayOrders.filter((o) => o.status === "Paid").length,
       pending: todayOrders.filter((o) => o.status === "Pending").length,
     };
   }, [branchFiltered]);
@@ -180,8 +194,8 @@ export default function OrdersPage() {
       color: "text-blue-600",
     },
     {
-      label: "Complete",
-      value: stats.complete,
+      label: "Paid",
+      value: stats.paid,
       icon: <CheckCircle2 size={20} />,
       bg: "bg-green-50",
       color: "text-green-600",
@@ -195,10 +209,12 @@ export default function OrdersPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-800">
-              Order Management
+              {sessionRole === "CASHIER" ? "Cashier Panel" : "Order Management"}
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              View and manage all orders with a clean overview
+              {sessionRole === "CASHIER"
+                ? "Handle served orders, collect payments, and print receipts"
+                : "View and manage all orders with a clean overview"}
             </p>
           </div>
 
@@ -242,7 +258,7 @@ export default function OrdersPage() {
         branchesLoading={branchesLoading}
         filterBranchId={filterBranchId}
         onBranchChange={(v) => {
-          if (sessionRole === "BRANCH_ADMIN" || sessionRole === "ORDER_TAKER") return;
+          if (sessionRole === "ORDER_TAKER" || sessionRole === "BRANCH_ADMIN") return;
           setFilterBranchId(v);
         }}
         statusFilter={statusFilter}
@@ -251,7 +267,11 @@ export default function OrdersPage() {
         onSearchChange={setSearch}
         statusCounts={statusCounts}
         totalCount={branchFiltered.length}
-        branchLocked={sessionRole === "BRANCH_ADMIN" || sessionRole === "ORDER_TAKER"}
+        branchLocked={
+          sessionRole === "ORDER_TAKER" ||
+          sessionRole === "BRANCH_ADMIN" ||
+          sessionRole === "CASHIER"
+        }
       />
 
       {/* ── Desktop: Table | Mobile: Card list ── */}
@@ -260,6 +280,8 @@ export default function OrdersPage() {
           orders={filteredOrders}
           loading={branchesLoading || ordersLoading}
           onView={setViewOrder}
+          onPay={setPayOrder}
+          isCashierMode={sessionRole === "CASHIER"}
         />
       </div>
       <div className="md:hidden">
@@ -267,6 +289,8 @@ export default function OrdersPage() {
           orders={filteredOrders}
           loading={branchesLoading || ordersLoading}
           onView={setViewOrder}
+          onPay={setPayOrder}
+          isCashierMode={sessionRole === "CASHIER"}
         />
       </div>
 
@@ -287,6 +311,18 @@ export default function OrdersPage() {
         isOpen={!!receiptOrder}
         onClose={() => setReceiptOrder(null)}
         order={receiptOrder}
+      />
+
+      <CashierPaymentModal
+        isOpen={!!payOrder}
+        order={payOrder}
+        onClose={() => setPayOrder(null)}
+        onPaid={(updatedOrder) => {
+          setOrdersState((prev) =>
+            prev.map((o) => (o.id === updatedOrder.id ? updatedOrder : o))
+          );
+          setReceiptOrder(updatedOrder);
+        }}
       />
     </DashboardLayout>
   );

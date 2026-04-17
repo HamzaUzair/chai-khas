@@ -33,6 +33,7 @@ interface MenuSalesFiltersProps {
   onDateToChange: (v: string) => void;
   branchId: number | "all";
   onBranchChange: (v: number | "all") => void;
+  lockBranchId?: number | null;
   category: string | "all";
   onCategoryChange: (v: string | "all") => void;
   search: string;
@@ -54,6 +55,7 @@ const MenuSalesFilters: React.FC<MenuSalesFiltersProps> = ({
   onDateToChange,
   branchId,
   onBranchChange,
+  lockBranchId = null,
   category,
   onCategoryChange,
   search,
@@ -130,8 +132,11 @@ const MenuSalesFilters: React.FC<MenuSalesFiltersProps> = ({
             onChange={(e) =>
               onBranchChange(e.target.value === "all" ? "all" : Number(e.target.value))
             }
+            disabled={Boolean(lockBranchId) || (branches.length === 1 && branchId !== "all")}
           >
-            <option value="all">All Branches</option>
+            {!lockBranchId && !(branches.length === 1 && branchId !== "all") && (
+              <option value="all">All Branches</option>
+            )}
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}

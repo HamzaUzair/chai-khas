@@ -4,11 +4,12 @@ export interface Branch {
   branch_id: number;
   branch_name: string;
   branch_code: string;
+  restaurant_id: number;
+  restaurant_name?: string;
   address: string | null;
-  phone: string | null;
-  email: string | null;
+  city: string | null;
   status: "Active" | "Inactive";
-  created_at: string;   // ISO string from API
+  created_at: string;
   updated_at: string;
 }
 
@@ -16,9 +17,9 @@ export interface Branch {
 export interface BranchFormData {
   branch_name: string;
   branch_code: string;
+  restaurant_id?: number;
   address?: string;
-  phone?: string;
-  email?: string;
+  city?: string;
   status: "Active" | "Inactive";
 }
 

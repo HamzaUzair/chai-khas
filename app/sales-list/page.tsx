@@ -19,11 +19,10 @@ import SalesTable from "@/components/sales-list/SalesTable";
 import SalesCardList from "@/components/sales-list/SalesCardList";
 import SalesOrderModal from "@/components/sales-list/SalesOrderModal";
 import SalesReceiptModal from "@/components/sales-list/SalesReceiptModal";
-import { generateSalesData } from "@/lib/salesListStorage";
 import { downloadCsv } from "@/lib/exportCsv";
 import type { SaleOrder, SaleStatus, PaymentMethod, SortField, SortDir, SaleBranch } from "@/types/salesList";
 import type { Branch } from "@/types/branch";
-import { apiFetch } from "@/lib/auth-client";
+import { apiFetch, getAuthSession, getEffectiveBranchId } from "@/lib/auth-client";
 
 /* ── toast ── */
 interface Toast {
@@ -35,12 +34,6 @@ interface Toast {
 /* ── date helpers ── */
 function toISODate(d: Date) {
   return d.toISOString().slice(0, 10);
-}
-function startOfDay(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").getTime();
-}
-function endOfDay(dateStr: string) {
-  return new Date(dateStr + "T23:59:59.999").getTime();
 }
 function daysAgo(n: number) {
   const d = new Date();
@@ -55,10 +48,12 @@ export default function SalesListPage() {
   /* ── Branches (from API) ── */
   const [branches, setBranches] = useState<SaleBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(true);
+  const [lockedBranchId, setLockedBranchId] = useState<number | null>(null);
 
   /* ── Data ── */
   const [orders, setOrders] = useState<SaleOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   /* ── Filters ── */
   const [search, setSearch] = useState("");
@@ -93,47 +88,82 @@ export default function SalesListPage() {
     if (localStorage.getItem("isAuthenticated") !== "true") {
       router.replace("/login");
     } else {
+      const session = getAuthSession();
+      const effective = getEffectiveBranchId(session);
+      const pinned = typeof effective === "number" ? effective : null;
+      setLockedBranchId(pinned);
+      if (pinned) {
+        setBranchId(pinned);
+      }
       setAuthorized(true);
     }
   }, [router]);
 
-  /* ══════════ Fetch branches from API + generate data ══════════ */
+  /* ══════════ Fetch branches from API ══════════ */
   useEffect(() => {
     if (!authorized) return;
     let cancelled = false;
 
-    const fetchAndGenerate = async () => {
-      setLoading(true);
+    const fetchBranches = async () => {
       setBranchesLoading(true);
-
-      let activeBranches: SaleBranch[] = [];
       try {
         const res = await apiFetch("/api/branches");
         if (!res.ok) throw new Error();
         const data: Branch[] = await res.json();
-        activeBranches = data
+        const activeBranches = data
           .filter((b) => b.status === "Active")
           .map((b) => ({ id: b.branch_id, name: b.branch_name }));
-      } catch {
-        // API failed — keep empty
-      }
-
-      if (cancelled) return;
-      setBranches(activeBranches);
-      setBranchesLoading(false);
-
-      // small delay for UX feel
-      setTimeout(() => {
         if (!cancelled) {
-          setOrders(generateSalesData(activeBranches));
-          setLoading(false);
+          setBranches(activeBranches);
+          if (lockedBranchId && activeBranches.some((b) => b.id === lockedBranchId)) {
+            setBranchId(lockedBranchId);
+          }
         }
-      }, 300);
+      } catch {
+        if (!cancelled) setBranches([]);
+      }
+      if (!cancelled) setBranchesLoading(false);
     };
 
-    fetchAndGenerate();
+    fetchBranches();
     return () => { cancelled = true; };
-  }, [authorized]);
+  }, [authorized, lockedBranchId]);
+
+  /* ══════════ Fetch sales list (real DB) ══════════ */
+  useEffect(() => {
+    if (!authorized) return;
+    let cancelled = false;
+
+    const fetchSales = async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (branchId !== "all") params.set("branchId", String(branchId));
+        if (status !== "all") params.set("status", status);
+        if (payment !== "all") params.set("payment", payment);
+        if (search.trim()) params.set("search", search.trim());
+        if (dateFrom) params.set("dateFrom", dateFrom);
+        if (dateTo) params.set("dateTo", dateTo);
+
+        const res = await apiFetch(`/api/reports/sales-list?${params.toString()}`);
+        if (!res.ok) throw new Error("Failed to fetch sales list");
+        const data: SaleOrder[] = await res.json();
+        if (!cancelled) setOrders(data);
+      } catch {
+        if (!cancelled) {
+          setOrders([]);
+          pushToast("Failed to load sales list data", "error");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    fetchSales();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorized, branchId, status, payment, search, dateFrom, dateTo, pushToast, refreshTick]);
 
   /* ══════════ Quick filter logic ══════════ */
   const applyQuickFilter = useCallback(
@@ -170,7 +200,7 @@ export default function SalesListPage() {
           setDateTo(todayStr);
           break;
         case "completed_only":
-          setStatus("Complete");
+          setStatus("Paid");
           setPayment("all");
           setDateFrom(toISODate(daysAgo(14)));
           setDateTo(todayStr);
@@ -185,18 +215,18 @@ export default function SalesListPage() {
   /* ══════════ Clear ══════════ */
   const clearFilters = useCallback(() => {
     setSearch("");
-    setBranchId("all");
+    setBranchId(lockedBranchId ?? "all");
     setStatus("all");
     setPayment("all");
     setDateFrom(toISODate(daysAgo(7)));
     setDateTo(toISODate(new Date()));
     setQuickFilter(null);
     setSortField(null);
-  }, []);
+  }, [lockedBranchId]);
 
   const hasActiveFilters =
     search !== "" ||
-    branchId !== "all" ||
+    (!lockedBranchId && branchId !== "all") ||
     status !== "all" ||
     payment !== "all" ||
     quickFilter !== null;
@@ -204,28 +234,6 @@ export default function SalesListPage() {
   /* ══════════ Filtered + sorted ══════════ */
   const filtered = useMemo(() => {
     let list = orders;
-
-    // branch
-    if (branchId !== "all") list = list.filter((o) => o.branchId === branchId);
-    // status
-    if (status !== "all") list = list.filter((o) => o.status === status);
-    // payment
-    if (payment !== "all") list = list.filter((o) => o.paymentMethod === payment);
-    // search
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      list = list.filter((o) => o.orderNo.toLowerCase().includes(q));
-    }
-    // date range
-    if (dateFrom) {
-      const start = startOfDay(dateFrom);
-      list = list.filter((o) => o.createdAt >= start);
-    }
-    if (dateTo) {
-      const end = endOfDay(dateTo);
-      list = list.filter((o) => o.createdAt <= end);
-    }
-
     // sort
     if (sortField) {
       const mult = sortDir === "asc" ? 1 : -1;
@@ -239,7 +247,7 @@ export default function SalesListPage() {
     }
 
     return list;
-  }, [orders, branchId, status, payment, search, dateFrom, dateTo, sortField, sortDir]);
+  }, [orders, sortField, sortDir]);
 
   /* ── Summary stats ── */
   const totalOrders = filtered.length;
@@ -271,12 +279,8 @@ export default function SalesListPage() {
 
   /* ── Refresh ── */
   const handleRefresh = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setOrders(generateSalesData(branches));
-      setLoading(false);
-      pushToast("Sales data refreshed", "info");
-    }, 300);
+    pushToast("Refreshing sales list…", "info");
+    setRefreshTick((p) => p + 1);
   };
 
   /* ══════════ Auth loading ══════════ */
@@ -372,6 +376,7 @@ export default function SalesListPage() {
         onSearchChange={setSearch}
         branchId={branchId}
         onBranchChange={setBranchId}
+        lockBranchId={lockedBranchId}
         status={status}
         onStatusChange={setStatus}
         payment={payment}

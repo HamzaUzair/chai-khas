@@ -49,9 +49,9 @@ const RecipesToolbar: React.FC<RecipesToolbarProps> = ({
           onChange={(e) =>
             onBranchChange(e.target.value === "all" ? "all" : Number(e.target.value))
           }
-          disabled={branchesLoading}
+          disabled={branchesLoading || (branches.length === 1 && filterBranchId !== "all")}
         >
-          <option value="all">All Branches</option>
+          {!(branches.length === 1 && filterBranchId !== "all") && <option value="all">All Branches</option>}
           {branches.map((b) => (
             <option key={b.branch_id} value={b.branch_id}>
               {b.branch_name}

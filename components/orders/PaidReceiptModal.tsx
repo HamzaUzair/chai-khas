@@ -23,6 +23,16 @@ const PaidReceiptModal: React.FC<PaidReceiptModalProps> = ({
   if (!isOpen || !order) return null;
 
   const subtotal = order.items.reduce((s, it) => s + it.price * it.qty, 0);
+  const resolvedSubtotal = order.subtotal ?? subtotal;
+  const serviceChargePercent = order.serviceChargePercent ?? 5;
+  const gstPercent = order.gstPercent ?? 0;
+  const gstAmount = order.gstAmount ?? 0;
+  const discountDisplayLabel =
+    order.discount > 0
+      ? order.discountType === "Percentage" && (order.discountValue ?? 0) > 0
+        ? `${order.discountValue}%`
+        : `PKR ${order.discount.toLocaleString("en-PK", { minimumFractionDigits: 2 })}`
+      : "0";
 
   const handlePrint = () => {
     window.print();
@@ -61,6 +71,13 @@ const PaidReceiptModal: React.FC<PaidReceiptModalProps> = ({
               <p className="text-xs text-[#ff5a1f] font-medium mt-0.5">
                 Type: {order.type}
               </p>
+              <p className="text-xs text-gray-400 mt-0.5">Branch: {order.branchName}</p>
+              {order.hall || order.table ? (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {order.hall ? `Hall: ${order.hall}` : "Hall: -"}
+                  {order.table ? ` | Table: ${order.table}` : ""}
+                </p>
+              ) : null}
               <p className="text-xs text-gray-400 mt-0.5">
                 {fmtDateTime(order.createdAt)}
               </p>
@@ -81,6 +98,7 @@ const PaidReceiptModal: React.FC<PaidReceiptModalProps> = ({
                     <div>
                       <p className="text-sm font-semibold text-gray-800">
                         {item.name}
+                        {item.variationName ? ` (${item.variationName})` : ""}
                       </p>
                       <p className="text-[11px] text-gray-400">
                         PKR {item.price.toLocaleString("en-PK", { minimumFractionDigits: 2 })} × {item.qty}
@@ -106,7 +124,7 @@ const PaidReceiptModal: React.FC<PaidReceiptModalProps> = ({
                 <span>Subtotal:</span>
                 <span className="font-medium text-gray-700">
                   PKR{" "}
-                  {subtotal.toLocaleString("en-PK", {
+                  {resolvedSubtotal.toLocaleString("en-PK", {
                     minimumFractionDigits: 2,
                   })}
                 </span>
@@ -114,20 +132,34 @@ const PaidReceiptModal: React.FC<PaidReceiptModalProps> = ({
               {order.discount > 0 && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-500">Discount:</span>
-                  <span className="font-medium text-red-500">
-                    −PKR{" "}
-                    {order.discount.toLocaleString("en-PK", {
-                      minimumFractionDigits: 2,
-                    })}
+                  <span className="font-medium text-red-500">{discountDisplayLabel}</span>
+                </div>
+              )}
+              {order.discount > 0 && order.discountReason && (
+                <div className="flex items-start justify-between text-sm gap-3">
+                  <span className="text-gray-500">Discount Reason:</span>
+                  <span className="font-medium text-gray-700 text-right">
+                    {order.discountReason}
                   </span>
                 </div>
               )}
               {order.serviceCharge > 0 && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Service Charge:</span>
+                  <span className="text-gray-500">Service Charge ({serviceChargePercent}%):</span>
                   <span className="font-medium text-gray-700">
                     +PKR{" "}
                     {order.serviceCharge.toLocaleString("en-PK", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
+              )}
+              {gstAmount > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">GST ({gstPercent}%):</span>
+                  <span className="font-medium text-gray-700">
+                    +PKR{" "}
+                    {gstAmount.toLocaleString("en-PK", {
                       minimumFractionDigits: 2,
                     })}
                   </span>

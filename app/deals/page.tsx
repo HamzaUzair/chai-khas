@@ -8,25 +8,31 @@
  } from "react";
  import { useRouter } from "next/navigation";
  import { PlusCircle, BadgePercent } from "lucide-react";
- import DashboardLayout from "@/components/layout/DashboardLayout";
- import type { AppRole } from "@/types/auth";
- import type { Branch } from "@/types/branch";
- import type { Deal, DealFormData } from "@/types/deal";
- import DealsToolbar, {
-   type DealStatusFilter,
- } from "@/components/deals/DealsToolbar";
- import DealCard from "@/components/deals/DealCard";
- import DealModal from "@/components/deals/DealModal";
- import DeleteDealModal from "@/components/deals/DeleteDealModal";
- import DealsTable from "@/components/deals/DealsTable";
- import type { ViewMode } from "@/components/menu/ViewToggle";
- import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import DashboardLayout from "@/components/layout/DashboardLayout";
+import ReadOnlyBanner from "@/components/layout/ReadOnlyBanner";
+import type { Branch } from "@/types/branch";
+import type { Deal, DealFormData } from "@/types/deal";
+import type { AuthSession } from "@/types/auth";
+import DealsToolbar, {
+  type DealStatusFilter,
+} from "@/components/deals/DealsToolbar";
+import DealCard from "@/components/deals/DealCard";
+import DealModal from "@/components/deals/DealModal";
+import DeleteDealModal from "@/components/deals/DeleteDealModal";
+import DealsTable from "@/components/deals/DealsTable";
+import type { ViewMode } from "@/components/menu/ViewToggle";
+import {
+  apiFetch,
+  getAuthSession,
+  isOperationalReadOnly,
+} from "@/lib/auth-client";
 
  export default function DealsPage() {
    const router = useRouter();
    const [authorized, setAuthorized] = useState(false);
-  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
   const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const readOnly = isOperationalReadOnly(session);
 
    /* Branches from API */
    const [branches, setBranches] = useState<Branch[]>([]);
@@ -49,14 +55,14 @@
 
    /* Auth guard */
    useEffect(() => {
-    const session = getAuthSession();
-    if (!session) {
+    const s = getAuthSession();
+    if (!s) {
        router.replace("/login");
      } else {
-      setSessionRole(session.role);
-      setSessionBranchId(session.branchId ?? null);
-      if (session.role === "BRANCH_ADMIN" && session.branchId) {
-        setFilterBranchId(session.branchId);
+      setSession(s);
+      setSessionBranchId(s.branchId ?? null);
+      if (s.branchId) {
+        setFilterBranchId(s.branchId);
       }
        setAuthorized(true);
      }
@@ -87,7 +93,7 @@
     try {
       const params = new URLSearchParams();
       const effectiveBranchId =
-        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+        sessionBranchId !== null
           ? sessionBranchId
           : filterBranchId;
       if (effectiveBranchId !== "all") params.set("branchId", String(effectiveBranchId));
@@ -104,7 +110,7 @@
     } finally {
       setDealsLoading(false);
     }
-  }, [filterBranchId, statusFilter, search, sessionRole, sessionBranchId]);
+  }, [filterBranchId, statusFilter, search, sessionBranchId]);
 
   useEffect(() => {
     if (authorized && !branchesLoading) {
@@ -123,11 +129,13 @@
 
    /* CRUD handlers (UI-only) */
    const openAddDeal = () => {
+     if (readOnly) return;
      setEditingDeal(null);
      setDealModalOpen(true);
    };
 
    const openEditDeal = (deal: Deal) => {
+     if (readOnly) return;
      setEditingDeal(deal);
      setDealModalOpen(true);
    };
@@ -171,6 +179,7 @@
   };
 
    const requestDeleteDeal = (deal: Deal) => {
+     if (readOnly) return;
      setDeleteTarget(deal);
    };
 
@@ -202,6 +211,8 @@
 
    return (
      <DashboardLayout title="Deals">
+      {readOnly && <ReadOnlyBanner module="deals" />}
+
        {/* Header card */}
        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -213,7 +224,9 @@
                Deals Management
              </h2>
              <p className="text-sm text-gray-500 mt-1">
-               Manage combo offers, bundles, and special deals across branches.
+               {readOnly
+                 ? "Review combo offers, bundles, and special deals across branches."
+                 : "Manage combo offers, bundles, and special deals across branches."}
              </p>
 
              <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
@@ -235,21 +248,23 @@
              </div>
            </div>
 
-           <div className="flex flex-col items-end gap-1">
-             <button
-               onClick={openAddDeal}
-               disabled={noBranches}
-               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-             >
-               <PlusCircle size={18} />
-               + Add Deal
-             </button>
-             {noBranches && (
-               <p className="text-xs text-red-500">
-                 Create an active branch first
-               </p>
-             )}
-           </div>
+           {!readOnly && (
+             <div className="flex flex-col items-end gap-1">
+               <button
+                 onClick={openAddDeal}
+                 disabled={noBranches}
+                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+               >
+                 <PlusCircle size={18} />
+                 + Add Deal
+               </button>
+               {noBranches && (
+                 <p className="text-xs text-red-500">
+                   Create an active branch first
+                 </p>
+               )}
+             </div>
+           )}
          </div>
        </div>
 
@@ -259,7 +274,7 @@
          branchesLoading={branchesLoading}
          filterBranchId={filterBranchId}
         onBranchChange={(v) => {
-          if (sessionRole === "BRANCH_ADMIN") return;
+          if (sessionBranchId !== null) return;
           setFilterBranchId(v);
         }}
          statusFilter={statusFilter}
@@ -296,6 +311,7 @@
                  deal={deal}
                  onEdit={openEditDeal}
                  onDelete={requestDeleteDeal}
+                 readOnly={readOnly}
                />
              ))}
            </div>
@@ -305,6 +321,7 @@
            deals={filteredDeals}
            onEdit={openEditDeal}
            onDelete={requestDeleteDeal}
+           readOnly={readOnly}
          />
        )}
 

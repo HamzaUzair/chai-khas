@@ -53,45 +53,37 @@ const BranchForm: React.FC<BranchFormProps> = ({ data, onChange, errors }) => {
         )}
       </div>
 
-      {/* Address */}
+      {/* Complete Address */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Address
+          Complete Address <span className="text-red-500">*</span>
         </label>
         <textarea
-          className={`${inputBase} min-h-[100px] resize-y`}
-          placeholder="Enter address"
+          className={`${inputBase} min-h-[100px] resize-y ${errors.address ? "border-red-400 ring-2 ring-red-100" : ""}`}
+          placeholder="Enter complete address"
           value={data.address ?? ""}
           onChange={(e) => update("address", e.target.value)}
         />
+        {errors.address && (
+          <p className="text-xs text-red-500 mt-1">{errors.address}</p>
+        )}
       </div>
 
-      {/* Phone */}
+      {/* City */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Phone
+          City <span className="text-red-500">*</span>
         </label>
         <input
-          type="tel"
-          className={inputBase}
-          placeholder="Enter phone number"
-          value={data.phone ?? ""}
-          onChange={(e) => update("phone", e.target.value)}
+          type="text"
+          className={`${inputBase} ${errors.city ? "border-red-400 ring-2 ring-red-100" : ""}`}
+          placeholder="Enter city"
+          value={data.city ?? ""}
+          onChange={(e) => update("city", e.target.value)}
         />
-      </div>
-
-      {/* Email */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Email
-        </label>
-        <input
-          type="email"
-          className={inputBase}
-          placeholder="Enter email"
-          value={data.email ?? ""}
-          onChange={(e) => update("email", e.target.value)}
-        />
+        {errors.city && (
+          <p className="text-xs text-red-500 mt-1">{errors.city}</p>
+        )}
       </div>
 
       {/* Status */}

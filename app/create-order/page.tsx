@@ -69,9 +69,18 @@ export default function CreateOrderPage() {
     if (
       session.role !== "ORDER_TAKER" &&
       session.role !== "BRANCH_ADMIN" &&
+      session.role !== "RESTAURANT_ADMIN" &&
       session.role !== "SUPER_ADMIN"
     ) {
       router.replace("/dashboard");
+      return;
+    }
+    if (
+      session.role === "BRANCH_ADMIN" ||
+      (session.role === "RESTAURANT_ADMIN" &&
+        session.restaurantHasMultipleBranches === false)
+    ) {
+      router.replace("/orders");
       return;
     }
     setSessionRole(session.role);

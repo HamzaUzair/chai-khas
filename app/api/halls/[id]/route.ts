@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  requireAuth,
+} from "@/lib/server-auth";
 
 type IncomingTableRow = {
   name?: string;
@@ -90,6 +94,12 @@ export async function PUT(
 ) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage halls" },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const hallId = Number(id);
     if (Number.isNaN(hallId)) {
@@ -103,7 +113,7 @@ export async function PUT(
     if (!existing) {
       return NextResponse.json({ error: "Hall not found" }, { status: 404 });
     }
-    assertBranchAccess(auth, existing.branch_id);
+    await assertBranchWriteAccess(auth, existing.branch_id);
 
     const body = await request.json();
     const {
@@ -126,7 +136,7 @@ export async function PUT(
     if (Number.isNaN(nextBranchId)) {
       return NextResponse.json({ error: "Invalid branch" }, { status: 400 });
     }
-    assertBranchAccess(auth, nextBranchId);
+    await assertBranchWriteAccess(auth, nextBranchId);
 
     const terminalNum = Math.max(1, Number(terminal) || 1);
     const normalizedTables = normalizeTableRows(tables);
@@ -179,6 +189,12 @@ export async function DELETE(
 ) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage halls" },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const hallId = Number(id);
     if (Number.isNaN(hallId)) {
@@ -192,7 +208,7 @@ export async function DELETE(
     if (!existing) {
       return NextResponse.json({ error: "Hall not found" }, { status: 404 });
     }
-    assertBranchAccess(auth, existing.branch_id);
+    await assertBranchWriteAccess(auth, existing.branch_id);
 
     await prisma.$transaction(async (tx) => {
       await tx.table.deleteMany({ where: { hall_id: hallId } });

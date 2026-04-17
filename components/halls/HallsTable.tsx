@@ -34,6 +34,7 @@ interface HallsTableProps {
   onEdit: (hall: Hall) => void;
   onDelete: (hall: Hall) => void;
   onManageTables?: (hall: Hall) => void;
+  readOnly?: boolean;
 }
 
 const HallsTable: React.FC<HallsTableProps> = ({
@@ -42,6 +43,7 @@ const HallsTable: React.FC<HallsTableProps> = ({
   onEdit,
   onDelete,
   onManageTables,
+  readOnly = false,
 }) => {
   if (loading) {
     return (
@@ -62,7 +64,10 @@ const HallsTable: React.FC<HallsTableProps> = ({
         <table className="w-full text-sm min-w-[780px]">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50/90 border-b border-gray-100">
-              {["ID", "Hall Name", "Tables", "Total Capacity", "Branch", "Created At", "Actions"].map(
+              {(readOnly
+                ? ["ID", "Hall Name", "Tables", "Total Capacity", "Branch", "Created At"]
+                : ["ID", "Hall Name", "Tables", "Total Capacity", "Branch", "Created At", "Actions"]
+              ).map(
                 (col) => (
                   <th
                     key={col}
@@ -130,33 +135,35 @@ const HallsTable: React.FC<HallsTableProps> = ({
                 </td>
 
                 {/* Actions */}
-                <td className="px-5 py-3.5 whitespace-nowrap">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => onEdit(hall)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-xs font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
-                    >
-                      <Pencil size={13} />
-                      Edit
-                    </button>
-                    {onManageTables && (
+                {!readOnly && (
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => onManageTables(hall)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-xs font-semibold hover:bg-blue-50 transition-colors cursor-pointer"
+                        onClick={() => onEdit(hall)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-xs font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
                       >
-                        <ListTree size={13} />
-                        Manage Tables
+                        <Pencil size={13} />
+                        Edit
                       </button>
-                    )}
-                    <button
-                      onClick={() => onDelete(hall)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-colors cursor-pointer"
-                    >
-                      <Trash2 size={13} />
-                      Delete
-                    </button>
-                  </div>
-                </td>
+                      {onManageTables && (
+                        <button
+                          onClick={() => onManageTables(hall)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 text-xs font-semibold hover:bg-blue-50 transition-colors cursor-pointer"
+                        >
+                          <ListTree size={13} />
+                          Manage Tables
+                        </button>
+                      )}
+                      <button
+                        onClick={() => onDelete(hall)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

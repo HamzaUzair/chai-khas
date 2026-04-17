@@ -4,19 +4,24 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PlusCircle } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
+import ReadOnlyBanner from "@/components/layout/ReadOnlyBanner";
 import BranchFilter from "@/components/categories/BranchFilter";
 import CategoryGrid from "@/components/categories/CategoryGrid";
 import CategoryTable from "@/components/categories/CategoryTable";
 import CategoryModal from "@/components/categories/CategoryModal";
 import ViewToggle, { type ViewMode } from "@/components/menu/ViewToggle";
 import type { Branch } from "@/types/branch";
-import type { AppRole } from "@/types/auth";
 import type {
   BranchCategoryData,
   Category,
   ApiCategory,
 } from "@/types/category";
-import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import {
+  apiFetch,
+  getAuthSession,
+  isOperationalReadOnly,
+} from "@/lib/auth-client";
+import type { AuthSession } from "@/types/auth";
 
 // Transform API response to frontend format (category-only, no items)
 function transformApiCategory(apiCat: ApiCategory): Category {
@@ -33,8 +38,9 @@ function transformApiCategory(apiCat: ApiCategory): Category {
 export default function CategoriesPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
-  const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
   const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const readOnly = isOperationalReadOnly(session);
 
   /* ── Branches from API ── */
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -56,14 +62,14 @@ export default function CategoriesPage() {
 
   /* ──────────────── Auth guard ──────────────── */
   useEffect(() => {
-    const session = getAuthSession();
-    if (!session) {
+    const s = getAuthSession();
+    if (!s) {
       router.replace("/login");
     } else {
-      setSessionRole(session.role);
-      setSessionBranchId(session.branchId ?? null);
-      if (session.role === "BRANCH_ADMIN" && session.branchId) {
-        setFilterBranchId(session.branchId);
+      setSession(s);
+      setSessionBranchId(s.branchId ?? null);
+      if (s.branchId) {
+        setFilterBranchId(s.branchId);
       }
       setAuthorized(true);
     }
@@ -94,7 +100,7 @@ export default function CategoriesPage() {
     setCategoriesError("");
     try {
       const effectiveBranchId =
-        sessionRole === "BRANCH_ADMIN" && sessionBranchId
+        sessionBranchId !== null
           ? sessionBranchId
           : filterBranchId;
       const url =
@@ -111,7 +117,7 @@ export default function CategoriesPage() {
     } finally {
       setCategoriesLoading(false);
     }
-  }, [filterBranchId, sessionRole, sessionBranchId]);
+  }, [filterBranchId, sessionBranchId]);
 
   useEffect(() => {
     if (authorized && !branchesLoading) {
@@ -176,6 +182,7 @@ export default function CategoriesPage() {
   ══════════════════════════════════════════════ */
 
   const openAddCategory = () => {
+    if (readOnly) return;
     setEditingCat(null);
     setEditingCatBranchId(
       filterBranchId === "all" ? null : filterBranchId
@@ -184,6 +191,7 @@ export default function CategoriesPage() {
   };
 
   const openEditCategory = (cat: Category, branchId: number) => {
+    if (readOnly) return;
     setEditingCat(cat);
     setEditingCatBranchId(branchId);
     setCatModalOpen(true);
@@ -235,6 +243,7 @@ export default function CategoriesPage() {
   };
 
   const handleDeleteCategory = async (categoryId: number, branchId: number, categoryName: string) => {
+    if (readOnly) return;
     const category = data
       .find((d) => d.branchId === branchId)
       ?.categories.find((c) => c.id === categoryId);
@@ -274,30 +283,36 @@ export default function CategoriesPage() {
 
   return (
     <DashboardLayout title="Categories">
+      {readOnly && <ReadOnlyBanner module="category" />}
+
       {/* ── Page Header ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-800">Categories</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Manage categories across branches. Menu items are managed in the Menu section.
+              {readOnly
+                ? "Review categories across all branches in your restaurant."
+                : "Manage categories across branches. Menu items are managed in the Menu section."}
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <button
-              onClick={openAddCategory}
-              disabled={noBranches}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <PlusCircle size={18} />
-              + Add Category
-            </button>
-            {noBranches && (
-              <p className="text-xs text-red-500">
-                Create an active branch first
-              </p>
-            )}
-          </div>
+          {!readOnly && (
+            <div className="flex flex-col items-end gap-1">
+              <button
+                onClick={openAddCategory}
+                disabled={noBranches}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <PlusCircle size={18} />
+                + Add Category
+              </button>
+              {noBranches && (
+                <p className="text-xs text-red-500">
+                  Create an active branch first
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -315,7 +330,7 @@ export default function CategoriesPage() {
       )}
 
       {/* ── Filter ── */}
-      {sessionRole !== "BRANCH_ADMIN" && (
+      {sessionBranchId === null && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
           <BranchFilter
             branches={branches}
@@ -351,12 +366,14 @@ export default function CategoriesPage() {
               groups={groups}
               onEditCategory={openEditCategory}
               onDeleteCategory={handleDeleteCategory}
+              readOnly={readOnly}
             />
           ) : (
             <CategoryTable
               items={flatCategories}
               onEditCategory={openEditCategory}
               onDeleteCategory={handleDeleteCategory}
+              readOnly={readOnly}
             />
           )}
         </div>
@@ -373,7 +390,7 @@ export default function CategoriesPage() {
         editCategory={editingCat}
         editBranchId={editingCatBranchId}
         activeBranches={branches}
-        showBranchSelect={sessionRole !== "BRANCH_ADMIN" && filterBranchId === "all"}
+        showBranchSelect={sessionBranchId === null && filterBranchId === "all"}
       />
     </DashboardLayout>
   );

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  requireAuth,
+} from "@/lib/server-auth";
 
 /* ── Helper: find or create category by name for branch ── */
 async function findOrCreateCategory(
@@ -76,7 +80,7 @@ export async function PUT(
         { status: 404 }
       );
     }
-    assertBranchAccess(auth, existing.branch_id);
+    await assertBranchWriteAccess(auth, existing.branch_id);
 
     const updateData: {
       name: string;
@@ -169,7 +173,7 @@ export async function DELETE(
         { status: 404 }
       );
     }
-    assertBranchAccess(auth, dish.branch_id);
+    await assertBranchWriteAccess(auth, dish.branch_id);
 
     await prisma.menuItem.delete({
       where: { dish_id: dishId },

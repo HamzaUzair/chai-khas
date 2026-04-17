@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  buildBranchScopeFilter,
+  requireAuth,
+} from "@/lib/server-auth";
 
 /* ── GET /api/categories ── */
 export async function GET(request: NextRequest) {
@@ -8,21 +13,9 @@ export async function GET(request: NextRequest) {
     const auth = await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const branchIdParam = searchParams.get("branch_id");
-
-    const where: { branch_id?: number } = {};
     const requestedBranchId =
       branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
-    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
-
-    if (scopedBranchId) {
-      where.branch_id = scopedBranchId;
-    }
-    else if (branchIdParam && branchIdParam !== "all") {
-      const branchId = parseInt(branchIdParam, 10);
-      if (!isNaN(branchId)) {
-        where.branch_id = branchId;
-      }
-    }
+    const where = await buildBranchScopeFilter(auth, requestedBranchId);
 
     const categories = await prisma.category.findMany({
       where,
@@ -77,25 +70,42 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage categories" },
+        { status: 403 }
+      );
+    }
     const body = await request.json();
     const { name, description, branch_id, is_active } = body;
 
-    // Validate required fields
     if (!name?.trim()) {
       return NextResponse.json(
         { error: "Category name is required" },
         { status: 400 }
       );
     }
-    const scopedBranchId = getScopedBranchId(auth, Number(branch_id));
-    if (!scopedBranchId) {
-      return NextResponse.json(
-        { error: "Branch ID is required" },
-        { status: 400 }
-      );
+
+    let scopedBranchId: number;
+    if (
+      auth.role === "BRANCH_ADMIN" ||
+      auth.role === "CASHIER" ||
+      auth.role === "ACCOUNTANT"
+    ) {
+      if (!auth.branchId) {
+        return NextResponse.json({ error: "Branch missing" }, { status: 403 });
+      }
+      scopedBranchId = auth.branchId;
+    } else {
+      if (!branch_id) {
+        return NextResponse.json(
+          { error: "Branch ID is required" },
+          { status: 400 }
+        );
+      }
+      scopedBranchId = Number(branch_id);
     }
 
-    // Verify branch exists
     const branch = await prisma.branch.findUnique({
       where: { branch_id: scopedBranchId },
     });
@@ -105,6 +115,7 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+    await assertBranchWriteAccess(auth, scopedBranchId);
 
     const category = await prisma.category.create({
       data: {

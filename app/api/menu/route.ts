@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  buildBranchScopeFilter,
+  requireAuth,
+} from "@/lib/server-auth";
 
 type IncomingVariation = { name?: string; price?: number | string };
 
@@ -50,17 +55,14 @@ export async function GET(request: NextRequest) {
     const categoryParam = searchParams.get("category");
     const searchParam = searchParams.get("search")?.trim();
 
-    const where: Prisma.MenuWhereInput = {};
-
     const requestedBranchId =
       branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
-    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
-    if (scopedBranchId) {
-      where.branchId = scopedBranchId;
-    } else if (branchIdParam && branchIdParam !== "all") {
-      const branchId = parseInt(branchIdParam, 10);
-      if (!isNaN(branchId)) where.branchId = branchId;
-    }
+    const scopeFilter = await buildBranchScopeFilter(
+      auth,
+      requestedBranchId,
+      "branchId"
+    );
+    const where: Prisma.MenuWhereInput = { ...(scopeFilter as Prisma.MenuWhereInput) };
     if (statusParam === "active" || statusParam === "inactive") {
       where.status = statusParam === "active" ? "ACTIVE" : "INACTIVE";
     }
@@ -129,6 +131,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage menu items" },
+        { status: 403 }
+      );
+    }
     const body = await request.json();
     const {
       itemName,
@@ -210,7 +218,7 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
-    assertBranchAccess(auth, branch.branch_id);
+    await assertBranchWriteAccess(auth, branch.branch_id);
 
     const categoryExists = await prisma.category.findFirst({
       where: {

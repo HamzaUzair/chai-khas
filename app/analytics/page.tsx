@@ -1,150 +1,159 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
+  ArrowLeft,
+  BarChart3,
+  BadgePercent,
   Building2,
   Calendar,
-  Download,
-  ChevronDown,
+  DollarSign,
+  Loader2,
+  Package,
+  ShoppingCart,
+  Store,
+  Trophy,
+  TrendingDown,
   TrendingUp,
-  CheckCircle2,
-  X,
+  Wallet,
 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import AnalyticsKpiCards from "@/components/analytics/AnalyticsKpiCards";
-import RevenueTrendChart from "@/components/analytics/RevenueTrendChart";
-import WeeklyPerformanceChart from "@/components/analytics/WeeklyPerformanceChart";
-import BranchComparisonTable from "@/components/analytics/BranchComparisonTable";
-import BestSellersList from "@/components/analytics/BestSellersList";
-import PeakHoursChart from "@/components/analytics/PeakHoursChart";
-import type { Branch } from "@/types/branch";
-import type { DateRange } from "@/lib/analyticsService";
-import { apiFetch } from "@/lib/auth-client";
-import {
-  getKpis,
-  getRevenueTrend,
-  getWeeklyPerformance,
-  getBranchComparison,
-  getBestSellers,
-  getPeakHours,
-} from "@/lib/analyticsService";
-import type {
-  KpiData,
-  RevenueTrendPoint,
-  WeeklyPoint,
-  BranchCompRow,
-  BestSellerRow,
-  PeakHourPoint,
-} from "@/lib/analyticsService";
+import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
-/* ── tiny toast ── */
-interface Toast {
-  id: number;
-  message: string;
+type Level = "platform" | "restaurant" | "branch";
+type DateRange = "today" | "7days" | "30days";
+
+interface KpiBase {
+  totalSales: number;
+  totalOrders: number;
+  avgOrderValue: number;
+}
+
+interface PlatformResponse {
+  level: "platform";
+  range: DateRange;
+  kpis: KpiBase & { totalRestaurants: number; totalBranches: number };
+  restaurants: Array<{
+    restaurant_id: number;
+    name: string;
+    slug: string;
+    status: string;
+    branchCount: number;
+    sales: number;
+    orders: number;
+  }>;
+  topRestaurants: Array<{
+    restaurant_id: number;
+    name: string;
+    sales: number;
+    orders: number;
+  }>;
+}
+
+interface RestaurantResponse {
+  level: "restaurant";
+  range: DateRange;
+  restaurant: {
+    restaurant_id: number;
+    name: string;
+    slug: string;
+    status: string;
+    branchCount: number;
+    userCount: number;
+  };
+  kpis: KpiBase & { totalBranches: number };
+  branches: Array<{
+    branch_id: number;
+    branch_name: string;
+    branch_code: string;
+    status: string;
+    sales: number;
+    orders: number;
+    avgOrderValue: number;
+  }>;
+  topBranch: { branch_name: string; sales: number } | null;
+  lowestBranch: { branch_name: string; sales: number } | null;
+}
+
+interface BranchResponse {
+  level: "branch";
+  range: DateRange;
+  branch: {
+    branch_id: number;
+    branch_name: string;
+    branch_code: string;
+    status: string;
+    restaurant: { restaurant_id: number; name: string; slug: string } | null;
+  };
+  kpis: KpiBase & {
+    activeMenuItems: number;
+    activeDeals: number;
+    expenses: number;
+  };
+  topSellingItems: Array<{
+    dish_id: number;
+    name: string;
+    category: string;
+    quantity: number;
+    total: number;
+  }>;
+}
+
+type OverviewResponse = PlatformResponse | RestaurantResponse | BranchResponse;
+
+function formatPKR(n: number) {
+  return `PKR ${Math.round(n).toLocaleString("en-PK")}`;
 }
 
 export default function AnalyticsPage() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
+  const [role, setRole] = useState<string>("");
 
-  /* ── Branches ── */
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(true);
+  const [range, setRange] = useState<DateRange>("7days");
+  const [restaurantId, setRestaurantId] = useState<number | null>(null);
+  const [branchId, setBranchId] = useState<number | null>(null);
 
-  /* ── Filters ── */
-  const [filterBranchId, setFilterBranchId] = useState<number | "all">("all");
-  const [dateRange, setDateRange] = useState<DateRange>("7days");
-  const [showCustom, setShowCustom] = useState(false);
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
-
-  /* ── Export dropdown ── */
-  const [exportOpen, setExportOpen] = useState(false);
-
-  /* ── Fake loading ── */
+  const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  /* ── Data ── */
-  const [kpis, setKpis] = useState<KpiData | null>(null);
-  const [revenueTrend, setRevenueTrend] = useState<RevenueTrendPoint[]>([]);
-  const [weeklyData, setWeeklyData] = useState<WeeklyPoint[]>([]);
-  const [branchComp, setBranchComp] = useState<BranchCompRow[]>([]);
-  const [bestSellers, setBestSellers] = useState<BestSellerRow[]>([]);
-  const [peakHours, setPeakHours] = useState<PeakHourPoint[]>([]);
-
-  /* ── Toast ── */
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const pushToast = useCallback((message: string) => {
-    const id = Date.now();
-    setToasts((prev) => [...prev, { id, message }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
-  }, []);
-
-  /* ══════════ Auth ══════════ */
   useEffect(() => {
-    if (localStorage.getItem("isAuthenticated") !== "true") {
+    const session = getAuthSession();
+    if (!session) {
       router.replace("/login");
-    } else {
-      setAuthorized(true);
+      return;
     }
+    setRole(session.role);
+    setAuthorized(true);
   }, [router]);
 
-  /* ══════════ Fetch branches ══════════ */
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!authorized) return;
-    (async () => {
-      setBranchesLoading(true);
-      try {
-        const res = await apiFetch("/api/branches");
-        if (!res.ok) throw new Error();
-        const data: Branch[] = await res.json();
-        setBranches(data.filter((b) => b.status === "Active"));
-      } catch {
-        /* silent */
-      } finally {
-        setBranchesLoading(false);
-      }
-    })();
-  }, [authorized]);
-
-  /* ══════════ Load analytics data (fake 800ms) ══════════ */
-  const loadData = useCallback(() => {
     setLoading(true);
-    const timer = setTimeout(() => {
-      setKpis(getKpis(filterBranchId, dateRange));
-      setRevenueTrend(getRevenueTrend(filterBranchId, dateRange));
-      setWeeklyData(getWeeklyPerformance(filterBranchId, dateRange));
-      setBranchComp(getBranchComparison(dateRange));
-      setBestSellers(getBestSellers(filterBranchId, dateRange));
-      setPeakHours(getPeakHours(filterBranchId, dateRange));
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      params.set("range", range);
+      if (restaurantId) params.set("restaurantId", String(restaurantId));
+      if (branchId) params.set("branchId", String(branchId));
+      const res = await apiFetch(`/api/analytics/overview?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to load analytics");
+      const body: OverviewResponse = await res.json();
+      setData(body);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
       setLoading(false);
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [filterBranchId, dateRange]);
+    }
+  }, [authorized, range, restaurantId, branchId]);
 
   useEffect(() => {
-    if (!authorized || branchesLoading) return;
-    const cleanup = loadData();
-    return cleanup;
-  }, [authorized, branchesLoading, loadData]);
+    load();
+  }, [load]);
 
-  /* ══════════ Handlers ══════════ */
-  const handleExport = (type: "pdf" | "csv") => {
-    setExportOpen(false);
-    pushToast(`Export ${type.toUpperCase()} coming soon`);
-  };
-
-  const handleDateRange = (r: DateRange) => {
-    if (r === "custom") {
-      setShowCustom(true);
-    } else {
-      setShowCustom(false);
-      setDateRange(r);
-    }
-  };
-
-  /* ══════════ Auth guard ══════════ */
   if (!authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -153,204 +162,585 @@ export default function AnalyticsPage() {
     );
   }
 
-  const dateLabels: Record<string, string> = {
-    today: "Today",
-    "7days": "Last 7 days",
-    "30days": "Last 30 days",
-    custom: "Custom",
-  };
+  const currentLevel: Level = data?.level ?? "platform";
+  const breadcrumb: Array<{ label: string; onClick?: () => void }> = [];
+  breadcrumb.push({
+    label: role === "SUPER_ADMIN" ? "Platform" : "Restaurant",
+    onClick:
+      role === "SUPER_ADMIN"
+        ? () => {
+            setRestaurantId(null);
+            setBranchId(null);
+          }
+        : undefined,
+  });
+  if (data && data.level === "restaurant") {
+    breadcrumb.push({ label: data.restaurant.name });
+  } else if (data && data.level === "branch") {
+    if (data.branch.restaurant) {
+      breadcrumb.push({
+        label: data.branch.restaurant.name,
+        onClick:
+          role === "SUPER_ADMIN"
+            ? () => {
+                setBranchId(null);
+              }
+            : undefined,
+      });
+    }
+    breadcrumb.push({ label: data.branch.branch_name });
+  }
 
   return (
     <DashboardLayout title="Advanced Analytics">
-      {/* ── Toast ── */}
-      <div className="fixed top-5 right-5 z-[200] space-y-2 pointer-events-none">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className="pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium bg-green-50 text-green-700 border border-green-200 animate-[slideIn_0.25s_ease-out]"
-          >
-            <CheckCircle2 size={16} />
-            {t.message}
-            <button
-              onClick={() => setToasts((p) => p.filter((x) => x.id !== t.id))}
-              className="ml-1 p-0.5 rounded hover:bg-black/5 cursor-pointer"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {/* ═══════════ HEADER CARD ═══════════ */}
+      {/* Header */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          {/* Title */}
           <div>
             <div className="flex items-center gap-2">
               <TrendingUp size={22} className="text-[#ff5a1f]" />
               <h2 className="text-2xl font-bold text-gray-800">
-                Advanced Analytics
+                {role === "SUPER_ADMIN"
+                  ? "SaaS Analytics"
+                  : "Restaurant Analytics"}
               </h2>
             </div>
             <p className="text-sm text-gray-500 mt-1">
-              Sales insights, best sellers, peak hours &amp; branch performance
+              {role === "SUPER_ADMIN"
+                ? "Platform, restaurant, and branch performance drilldown"
+                : "Monitor your restaurant performance across all branches"}
             </p>
           </div>
-
-          {/* Controls */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Branch dropdown */}
-            <div className="relative">
-              <Building2
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-              />
-              <select
-                className="border border-gray-200 rounded-lg pl-8 pr-3.5 py-2 text-sm text-gray-700 bg-white cursor-pointer appearance-none focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
-                value={filterBranchId}
-                onChange={(e) =>
-                  setFilterBranchId(
-                    e.target.value === "all" ? "all" : Number(e.target.value)
-                  )
-                }
-                disabled={branchesLoading}
+          <div className="flex items-center gap-2">
+            {(restaurantId || branchId) && (
+              <button
+                onClick={() => {
+                  if (branchId) {
+                    setBranchId(null);
+                  } else {
+                    setRestaurantId(null);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
               >
-                <option value="all">All Branches</option>
-                {branches.map((b) => (
-                  <option key={b.branch_id} value={b.branch_id}>
-                    {b.branch_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Date range */}
+                <ArrowLeft size={14} />
+                Back
+              </button>
+            )}
             <div className="relative">
               <Calendar
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
               />
               <select
-                className="border border-gray-200 rounded-lg pl-8 pr-3.5 py-2 text-sm text-gray-700 bg-white cursor-pointer appearance-none focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
-                value={showCustom ? "custom" : dateRange}
-                onChange={(e) => handleDateRange(e.target.value as DateRange)}
+                className="border border-gray-200 rounded-lg pl-8 pr-3.5 py-2 text-sm text-gray-700 bg-white cursor-pointer appearance-none focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30"
+                value={range}
+                onChange={(e) => setRange(e.target.value as DateRange)}
               >
                 <option value="today">Today</option>
                 <option value="7days">Last 7 days</option>
                 <option value="30days">Last 30 days</option>
-                <option value="custom">Custom</option>
               </select>
-            </div>
-
-            {/* Export */}
-            <div className="relative">
-              <button
-                onClick={() => setExportOpen((p) => !p)}
-                className="inline-flex items-center gap-1.5 border border-gray-200 rounded-lg px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
-              >
-                <Download size={14} />
-                Export
-                <ChevronDown size={12} />
-              </button>
-              {exportOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-30"
-                    onClick={() => setExportOpen(false)}
-                  />
-                  <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg border border-gray-100 shadow-lg z-40 py-1">
-                    <button
-                      onClick={() => handleExport("pdf")}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 cursor-pointer"
-                    >
-                      Export PDF
-                    </button>
-                    <button
-                      onClick={() => handleExport("csv")}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 cursor-pointer"
-                    >
-                      Export CSV
-                    </button>
-                  </div>
-                </>
-              )}
             </div>
           </div>
         </div>
 
-        {/* Custom range inputs */}
-        {showCustom && (
-          <div className="flex flex-wrap items-end gap-3 mt-4 pt-4 border-t border-gray-100">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">
-                From
-              </label>
-              <input
-                type="date"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f]"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">
-                To
-              </label>
-              <input
-                type="date"
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f]"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-              />
-            </div>
-            <button
-              onClick={() => {
-                setDateRange("30days"); // custom uses 30-day mock
-                pushToast("Custom date range applied (mock data)");
-              }}
-              className="px-4 py-2 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors cursor-pointer"
-            >
-              Apply
-            </button>
-          </div>
-        )}
-
-        {/* Active filter badge */}
-        {!showCustom && (
-          <div className="mt-3">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#ff5a1f]/10 text-[#ff5a1f] text-xs font-semibold">
-              <Calendar size={12} />
-              {dateLabels[dateRange]}
-              {filterBranchId !== "all" && (
-                <>
-                  {" · "}
-                  {branches.find((b) => b.branch_id === filterBranchId)?.branch_name}
-                </>
+        {/* Breadcrumb */}
+        <div className="mt-4 flex items-center gap-1.5 text-sm">
+          {breadcrumb.map((b, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <span className="text-gray-400">/</span>}
+              {b.onClick ? (
+                <button
+                  onClick={b.onClick}
+                  className="text-[#ff5a1f] hover:underline cursor-pointer"
+                >
+                  {b.label}
+                </button>
+              ) : (
+                <span className="text-gray-700 font-medium">{b.label}</span>
               )}
-            </span>
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="py-16 flex justify-center">
+          <Loader2 size={28} className="animate-spin text-[#ff5a1f]" />
+        </div>
+      ) : error || !data ? (
+        <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
+          {error || "No data"}
+        </div>
+      ) : data.level === "platform" ? (
+        <PlatformView
+          data={data}
+          onRestaurantClick={(rid) => {
+            setRestaurantId(rid);
+            setBranchId(null);
+          }}
+        />
+      ) : data.level === "restaurant" ? (
+        <RestaurantView
+          data={data}
+          canDrillToBranch
+          onBranchClick={(bid) => setBranchId(bid)}
+        />
+      ) : (
+        <BranchView data={data} />
+      )}
+      {currentLevel /* referenced to keep the var used */ ? null : null}
+    </DashboardLayout>
+  );
+}
+
+/* ─────────────── Platform view ─────────────── */
+
+function PlatformView({
+  data,
+  onRestaurantClick,
+}: {
+  data: PlatformResponse;
+  onRestaurantClick: (restaurantId: number) => void;
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <KpiCard
+          label="Restaurants"
+          value={String(data.kpis.totalRestaurants)}
+          icon={<Store size={20} />}
+          tone="text-[#ff5a1f] bg-[#ff5a1f]/10"
+        />
+        <KpiCard
+          label="Branches"
+          value={String(data.kpis.totalBranches)}
+          icon={<Building2 size={20} />}
+          tone="text-indigo-600 bg-indigo-50"
+        />
+        <KpiCard
+          label="Total Sales"
+          value={formatPKR(data.kpis.totalSales)}
+          icon={<DollarSign size={20} />}
+          tone="text-green-600 bg-green-50"
+        />
+        <KpiCard
+          label="Total Orders"
+          value={String(data.kpis.totalOrders)}
+          icon={<ShoppingCart size={20} />}
+          tone="text-blue-600 bg-blue-50"
+        />
+        <KpiCard
+          label="Avg Order"
+          value={formatPKR(data.kpis.avgOrderValue)}
+          icon={<BarChart3 size={20} />}
+          tone="text-purple-600 bg-purple-50"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Trophy size={18} className="text-amber-500" />
+            <h3 className="text-sm font-bold text-gray-800">Top Restaurants</h3>
           </div>
+          {data.topRestaurants.length === 0 ? (
+            <p className="text-sm text-gray-400">No sales yet</p>
+          ) : (
+            <ul className="space-y-2">
+              {data.topRestaurants.map((r, i) => (
+                <li
+                  key={r.restaurant_id}
+                  className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-gray-50"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-6 h-6 rounded-full bg-[#ff5a1f]/10 flex items-center justify-center text-xs font-bold text-[#ff5a1f]">
+                      {i + 1}
+                    </span>
+                    <span className="font-medium text-gray-800">{r.name}</span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-gray-700">
+                      {formatPKR(r.sales)}
+                    </p>
+                    <p className="text-xs text-gray-400">{r.orders} orders</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Store size={18} className="text-[#ff5a1f]" />
+            <h3 className="text-sm font-bold text-gray-800">Active Tenants</h3>
+          </div>
+          <p className="text-sm text-gray-500">
+            {data.restaurants.filter((r) => r.status === "Active").length} of{" "}
+            {data.restaurants.length} restaurants are currently active on the
+            platform.
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-gray-800">
+            All Restaurants
+          </h3>
+          <Link
+            href="/restaurants"
+            className="text-xs font-semibold text-[#ff5a1f] hover:underline"
+          >
+            Manage →
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[700px]">
+            <thead>
+              <tr className="bg-gray-50">
+                {["Restaurant", "Status", "Branches", "Sales", "Orders", ""].map(
+                  (c) => (
+                    <th
+                      key={c}
+                      className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                    >
+                      {c}
+                    </th>
+                  )
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {data.restaurants.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="px-6 py-10 text-center text-gray-400 text-sm"
+                  >
+                    No restaurants on the platform yet.
+                  </td>
+                </tr>
+              ) : (
+                data.restaurants.map((r) => (
+                  <tr
+                    key={r.restaurant_id}
+                    className="hover:bg-gray-50/60 transition-colors cursor-pointer"
+                    onClick={() => onRestaurantClick(r.restaurant_id)}
+                  >
+                    <td className="px-6 py-4 font-medium text-gray-800">
+                      {r.name}
+                      <p className="text-xs text-gray-400 mt-0.5">{r.slug}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          r.status === "Active"
+                            ? "bg-green-50 text-green-600"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">{r.branchCount}</td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {formatPKR(r.sales)}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">{r.orders}</td>
+                    <td className="px-6 py-4">
+                      <span className="text-xs font-semibold text-[#ff5a1f]">
+                        Drill down →
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ─────────────── Restaurant view ─────────────── */
+
+function RestaurantView({
+  data,
+  canDrillToBranch,
+  onBranchClick,
+}: {
+  data: RestaurantResponse;
+  canDrillToBranch: boolean;
+  onBranchClick: (branchId: number) => void;
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <KpiCard
+          label="Total Sales"
+          value={formatPKR(data.kpis.totalSales)}
+          icon={<DollarSign size={20} />}
+          tone="text-green-600 bg-green-50"
+        />
+        <KpiCard
+          label="Total Orders"
+          value={String(data.kpis.totalOrders)}
+          icon={<ShoppingCart size={20} />}
+          tone="text-blue-600 bg-blue-50"
+        />
+        <KpiCard
+          label="Avg Order"
+          value={formatPKR(data.kpis.avgOrderValue)}
+          icon={<BarChart3 size={20} />}
+          tone="text-purple-600 bg-purple-50"
+        />
+        <KpiCard
+          label="Branches"
+          value={String(data.kpis.totalBranches)}
+          icon={<Building2 size={20} />}
+          tone="text-[#ff5a1f] bg-[#ff5a1f]/10"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <SpotlightCard
+          title="Top Branch"
+          icon={<Trophy size={18} className="text-amber-500" />}
+          name={data.topBranch?.branch_name ?? null}
+          subtitle={data.topBranch ? formatPKR(data.topBranch.sales) : "—"}
+        />
+        <SpotlightCard
+          title="Lowest Branch"
+          icon={<TrendingDown size={18} className="text-gray-500" />}
+          name={data.lowestBranch?.branch_name ?? null}
+          subtitle={
+            data.lowestBranch ? formatPKR(data.lowestBranch.sales) : "—"
+          }
+        />
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold text-gray-800">
+            Branch Performance
+          </h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[700px]">
+            <thead>
+              <tr className="bg-gray-50">
+                {["Branch", "Code", "Status", "Sales", "Orders", "AOV", ""].map(
+                  (c) => (
+                    <th
+                      key={c}
+                      className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                    >
+                      {c}
+                    </th>
+                  )
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {data.branches.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-6 py-10 text-center text-gray-400 text-sm"
+                  >
+                    No branches yet for this restaurant.
+                  </td>
+                </tr>
+              ) : (
+                data.branches.map((b) => (
+                  <tr
+                    key={b.branch_id}
+                    className={`transition-colors ${
+                      canDrillToBranch
+                        ? "hover:bg-gray-50/60 cursor-pointer"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      canDrillToBranch ? onBranchClick(b.branch_id) : undefined
+                    }
+                  >
+                    <td className="px-6 py-4 font-medium text-gray-800">
+                      {b.branch_name}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">{b.branch_code}</td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          b.status === "Active"
+                            ? "bg-green-50 text-green-600"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {b.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {formatPKR(b.sales)}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">{b.orders}</td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {formatPKR(b.avgOrderValue)}
+                    </td>
+                    <td className="px-6 py-4">
+                      {canDrillToBranch && (
+                        <span className="text-xs font-semibold text-[#ff5a1f]">
+                          Drill down →
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ─────────────── Branch view ─────────────── */
+
+function BranchView({ data }: { data: BranchResponse }) {
+  return (
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+        <KpiCard
+          label="Sales"
+          value={formatPKR(data.kpis.totalSales)}
+          icon={<DollarSign size={20} />}
+          tone="text-green-600 bg-green-50"
+        />
+        <KpiCard
+          label="Orders"
+          value={String(data.kpis.totalOrders)}
+          icon={<ShoppingCart size={20} />}
+          tone="text-blue-600 bg-blue-50"
+        />
+        <KpiCard
+          label="Avg Order"
+          value={formatPKR(data.kpis.avgOrderValue)}
+          icon={<BarChart3 size={20} />}
+          tone="text-purple-600 bg-purple-50"
+        />
+        <KpiCard
+          label="Active Menu"
+          value={String(data.kpis.activeMenuItems)}
+          icon={<Package size={20} />}
+          tone="text-indigo-600 bg-indigo-50"
+        />
+        <KpiCard
+          label="Active Deals"
+          value={String(data.kpis.activeDeals)}
+          icon={<BadgePercent size={20} />}
+          tone="text-amber-600 bg-amber-50"
+        />
+        <KpiCard
+          label="Expenses"
+          value={formatPKR(data.kpis.expenses)}
+          icon={<Wallet size={20} />}
+          tone="text-rose-600 bg-rose-50"
+        />
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <h3 className="text-base font-semibold text-gray-800 mb-4">
+          Top Selling Items
+        </h3>
+        {data.topSellingItems.length === 0 ? (
+          <p className="text-sm text-gray-400">No sales data yet</p>
+        ) : (
+          <ul className="space-y-2">
+            {data.topSellingItems.map((item, i) => (
+              <li
+                key={item.dish_id}
+                className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-6 h-6 rounded-full bg-[#ff5a1f]/10 flex items-center justify-center text-xs font-bold text-[#ff5a1f]">
+                    {i + 1}
+                  </span>
+                  <div>
+                    <p className="font-medium text-gray-800">{item.name}</p>
+                    <p className="text-xs text-gray-400">{item.category}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-gray-700">
+                    {Math.round(item.quantity)} sold
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {formatPKR(item.total)}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
+    </>
+  );
+}
 
-      {/* ═══════════ KPI CARDS ═══════════ */}
-      <AnalyticsKpiCards data={kpis} loading={loading} />
+/* ─────────────── Shared ─────────────── */
 
-      {/* ═══════════ CHARTS ROW ═══════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <RevenueTrendChart data={revenueTrend} loading={loading} />
-        <WeeklyPerformanceChart data={weeklyData} loading={loading} />
+function KpiCard({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  tone: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${tone}`}>
+        {icon}
       </div>
-
-      {/* ═══════════ BRANCH COMPARISON ═══════════ */}
-      <div className="mb-6">
-        <BranchComparisonTable data={branchComp} loading={loading} />
+      <div>
+        <p className="text-xs text-gray-400 uppercase tracking-wider">{label}</p>
+        <p className="text-xl font-bold text-gray-800 mt-0.5">{value}</p>
       </div>
+    </div>
+  );
+}
 
-      {/* ═══════════ BEST SELLERS + PEAK HOURS ═══════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <BestSellersList data={bestSellers} loading={loading} />
-        <PeakHoursChart data={peakHours} loading={loading} />
+function SpotlightCard({
+  title,
+  icon,
+  name,
+  subtitle,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  name: string | null;
+  subtitle: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center gap-2 mb-2">
+        {icon}
+        <h3 className="text-sm font-bold text-gray-800">{title}</h3>
       </div>
-    </DashboardLayout>
+      {name ? (
+        <>
+          <p className="font-semibold text-gray-800">{name}</p>
+          <p className="text-lg font-bold text-[#ff5a1f] mt-0.5">{subtitle}</p>
+        </>
+      ) : (
+        <p className="text-sm text-gray-400">No data</p>
+      )}
+    </div>
   );
 }

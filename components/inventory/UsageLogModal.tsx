@@ -98,8 +98,8 @@ const UsageLogModal: React.FC<Props> = ({ isOpen, onClose, log, branches }) => {
 
         {/* Filters */}
         <div className="px-6 py-3 border-b border-gray-50 grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <select className="border border-gray-200 rounded-lg px-3 py-2 text-xs bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30" value={branchId} onChange={(e) => setBranchId(e.target.value === "all" ? "all" : Number(e.target.value))}>
-            <option value="all">All Branches</option>
+          <select className="border border-gray-200 rounded-lg px-3 py-2 text-xs bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30" value={branchId} onChange={(e) => setBranchId(e.target.value === "all" ? "all" : Number(e.target.value))} disabled={branches.length === 1 && branchId !== "all"}>
+            {!(branches.length === 1 && branchId !== "all") && <option value="all">All Branches</option>}
             {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
           <div className="relative">

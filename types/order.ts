@@ -5,9 +5,9 @@ export type OrderType = "Dine In" | "Take Away" | "Delivery";
 export type OrderStatus =
   | "Pending"
   | "Running"
-  | "Bill Generated"
+  | "Served"
+  | "Paid"
   | "Credit"
-  | "Complete"
   | "Cancelled";
 
 export type PaymentMode = "Cash" | "Card" | "Online" | "Credit";
@@ -35,6 +35,13 @@ export interface Order {
   createdAt: number;
   items: OrderItem[];
   discount: number;
+  discountType?: "Fixed Amount" | "Percentage" | null;
+  discountValue?: number;
+  discountReason?: string | null;
+  subtotal?: number;
+  serviceChargePercent?: number;
+  gstPercent?: number;
+  gstAmount?: number;
   serviceCharge: number;
   paid: boolean;
 }
@@ -42,8 +49,8 @@ export interface Order {
 export const ORDER_STATUSES: OrderStatus[] = [
   "Pending",
   "Running",
-  "Bill Generated",
+  "Served",
+  "Paid",
   "Credit",
-  "Complete",
   "Cancelled",
 ];

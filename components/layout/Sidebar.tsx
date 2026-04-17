@@ -22,6 +22,7 @@ import {
   UserCog,
   ShieldCheck,
   TrendingUp,
+  Store,
   X,
 } from "lucide-react";
 import { getAuthSession } from "@/lib/auth-client";
@@ -29,10 +30,19 @@ import { getAuthSession } from "@/lib/auth-client";
 interface SidebarItem {
   label: string;
   icon: React.ReactNode;
-  href?: string; // only items with href will navigate
+  href?: string;
 }
 
-const allMenuItems: SidebarItem[] = [
+/* ══════════════ Platform (Super Admin) sidebar ══════════════ */
+const superAdminMenu: SidebarItem[] = [
+  { label: "Dashboard", icon: <LayoutDashboard size={20} />, href: "/dashboard" },
+  { label: "Restaurants", icon: <Store size={20} />, href: "/restaurants" },
+  { label: "Users", icon: <UserCog size={20} />, href: "/users" },
+  { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
+];
+
+/* ══════════════ Restaurant Admin operational sidebar ══════════════ */
+const restaurantAdminMenu: SidebarItem[] = [
   { label: "Dashboard", icon: <LayoutDashboard size={20} />, href: "/dashboard" },
   { label: "Branches", icon: <Building2 size={20} />, href: "/branches" },
   { label: "Categories", icon: <Tag size={20} />, href: "/categories" },
@@ -50,26 +60,49 @@ const allMenuItems: SidebarItem[] = [
   { label: "Halls", icon: <Grid3X3 size={20} />, href: "/halls" },
   { label: "Roles", icon: <ShieldCheck size={20} />, href: "/roles" },
   { label: "Customers", icon: <Users size={20} /> },
-  { label: "Users", icon: <UserCog size={20} />, href: "/users" },
   { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
 ];
 
-const branchAdminAllowedLabels = new Set([
-  "Dashboard",
-  "Categories",
-  "Menu",
-  "Deals",
-  "Kitchen",
-  "Orders",
-  "Sales List",
-  "Sales Report",
-  "Menu Sales",
-  "Expenses",
-  "Day End",
-  "Halls",
-  "Roles",
-  "Advanced Analytics",
-]);
+/* ══════════════ Branch Admin operational sidebar ══════════════ *
+ * Branch Admins run a single branch inside a multi-branch restaurant —
+ * same operational toolbox as a single-branch Restaurant Admin, but
+ * without the "Branches" switcher (they don't manage peers).
+ */
+const branchAdminMenu: SidebarItem[] = [
+  { label: "Dashboard", icon: <LayoutDashboard size={20} />, href: "/dashboard" },
+  { label: "Categories", icon: <Tag size={20} />, href: "/categories" },
+  { label: "Menu", icon: <UtensilsCrossed size={20} />, href: "/menu" },
+  { label: "Deals", icon: <BadgePercent size={20} />, href: "/deals" },
+  { label: "Kitchen", icon: <ChefHat size={20} />, href: "/kitchen" },
+  { label: "Printers", icon: <Printer size={20} />, href: "/printers" },
+  { label: "Orders", icon: <ClipboardList size={20} />, href: "/orders" },
+  { label: "Sales List", icon: <Receipt size={20} />, href: "/sales-list" },
+  { label: "Sales Report", icon: <BarChart3 size={20} />, href: "/sales-report" },
+  { label: "Menu Sales", icon: <PieChart size={20} />, href: "/menu-sales" },
+  { label: "Expenses", icon: <Wallet size={20} />, href: "/expenses" },
+  { label: "Day End", icon: <CalendarCheck size={20} />, href: "/dayend" },
+  { label: "Halls", icon: <Grid3X3 size={20} />, href: "/halls" },
+  { label: "Roles", icon: <ShieldCheck size={20} />, href: "/roles" },
+  { label: "Customers", icon: <Users size={20} /> },
+  { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
+];
+
+/* ══════════════ Order Taker limited menu ══════════════ */
+const orderTakerMenu: SidebarItem[] = [
+  { label: "New Order / POS", icon: <ClipboardList size={20} />, href: "/create-order" },
+];
+
+const liveKitchenMenu: SidebarItem[] = [
+  { label: "Kitchen", icon: <ChefHat size={20} />, href: "/kitchen" },
+];
+
+const cashierMenu: SidebarItem[] = [
+  { label: "Orders", icon: <ClipboardList size={20} />, href: "/orders" },
+];
+
+const staffMenu: SidebarItem[] = [
+  { label: "Dashboard", icon: <LayoutDashboard size={20} />, href: "/dashboard" },
+];
 
 interface SidebarProps {
   isOpen: boolean;
@@ -79,20 +112,46 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const pathname = usePathname();
   const session = getAuthSession();
-  const isBranchAdmin = session?.role === "BRANCH_ADMIN";
-  const isOrderTaker = session?.role === "ORDER_TAKER";
-  const isStaffRole =
-    isOrderTaker || session?.role === "CASHIER" || session?.role === "ACCOUNTANT";
+  const role = session?.role ?? "SUPER_ADMIN";
 
-  const menuItems = isOrderTaker
-    ? allMenuItems.filter((item) =>
-        ["Dashboard", "New Order / POS", "Orders"].includes(item.label)
-      )
-    : isStaffRole
-    ? allMenuItems.filter((item) => item.label === "Dashboard")
-    : isBranchAdmin
-    ? allMenuItems.filter((item) => branchAdminAllowedLabels.has(item.label))
-    : allMenuItems;
+  // Single-branch restaurants don't manage branches from the UI — the tenant
+  // operates on its single auto-provisioned default branch behind the scenes.
+  const restaurantAdminMenuForSession =
+    role === "RESTAURANT_ADMIN" && session?.restaurantHasMultipleBranches === false
+      ? restaurantAdminMenu.filter(
+          (item) => item.href !== "/branches" && item.href !== "/create-order"
+        )
+      : restaurantAdminMenu;
+
+  const menuItems =
+    role === "SUPER_ADMIN"
+      ? superAdminMenu
+      : role === "RESTAURANT_ADMIN"
+      ? restaurantAdminMenuForSession
+      : role === "BRANCH_ADMIN"
+      ? branchAdminMenu
+      : role === "ORDER_TAKER"
+      ? orderTakerMenu
+      : role === "LIVE_KITCHEN"
+      ? liveKitchenMenu
+      : role === "CASHIER"
+      ? cashierMenu
+      : staffMenu;
+
+  const panelLabel =
+    role === "SUPER_ADMIN"
+      ? "Restenzo"
+      : role === "RESTAURANT_ADMIN"
+      ? "Restaurant Admin"
+      : role === "BRANCH_ADMIN"
+      ? "Branch Admin"
+      : role === "ORDER_TAKER"
+      ? "Order Taker"
+      : role === "LIVE_KITCHEN"
+      ? "Live Kitchen"
+      : role === "CASHIER"
+      ? "Cashier"
+      : "Staff Panel";
 
   const baseClasses =
     "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer";
@@ -101,7 +160,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-40 lg:hidden"
@@ -114,14 +172,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {/* ── Brand ── */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-[#ff5a1f] flex items-center justify-center">
               <UtensilsCrossed size={18} className="text-white" />
             </div>
             <span className="text-lg font-bold text-[#ff5a1f] tracking-wide">
-              {isBranchAdmin ? "Branch Admin" : isStaffRole ? "Staff Panel" : "Super Admin"}
+              {panelLabel}
             </span>
           </div>
           <button
@@ -133,7 +190,48 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           </button>
         </div>
 
-        {/* ── Menu ── */}
+        {role === "RESTAURANT_ADMIN" && session?.restaurantName && (
+          <div className="mx-3 mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              Restaurant
+            </p>
+            <p className="text-sm font-semibold text-gray-800 truncate">
+              {session.restaurantName}
+            </p>
+            {session.restaurantHasMultipleBranches === true && (
+              <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-[#ff5a1f]">
+                Head Office · View only
+              </p>
+            )}
+          </div>
+        )}
+
+        {role === "BRANCH_ADMIN" &&
+          (session?.restaurantName || session?.branchName) && (
+            <div className="mx-3 mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              {session?.restaurantName && (
+                <>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    Restaurant
+                  </p>
+                  <p className="text-sm font-semibold text-gray-800 truncate">
+                    {session.restaurantName}
+                  </p>
+                </>
+              )}
+              {session?.branchName && (
+                <>
+                  <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    Branch
+                  </p>
+                  <p className="text-sm font-semibold text-gray-800 truncate">
+                    {session.branchName}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
           {menuItems.map((item) => {
             const isActive = item.href ? pathname === item.href : false;
@@ -162,10 +260,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           })}
         </nav>
 
-        {/* ── Footer ── */}
         <div className="px-5 py-4 border-t border-gray-100 shrink-0">
           <p className="text-[11px] text-gray-400 text-center">
-            © 2024 Chai Khas POS
+            © 2024 Restenzo
           </p>
         </div>
       </aside>

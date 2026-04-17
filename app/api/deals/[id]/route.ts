@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  requireAuth,
+} from "@/lib/server-auth";
 
 type IncomingDealItem = {
   id?: string;
@@ -65,6 +69,12 @@ export async function PUT(
 ) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage deals" },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const dealId = Number(id);
     if (Number.isNaN(dealId)) {
@@ -101,7 +111,11 @@ export async function PUT(
     if (!existing) {
       return NextResponse.json({ error: "Deal not found" }, { status: 404 });
     }
-    assertBranchAccess(auth, existing.branch_id);
+    await assertBranchWriteAccess(auth, existing.branch_id);
+    // If caller is changing the deal's branch, gate access to the target branch too.
+    if (branchIdNum !== existing.branch_id) {
+      await assertBranchWriteAccess(auth, branchIdNum);
+    }
 
     const normalizedItems = (items ?? [])
       .map((item) => ({
@@ -184,6 +198,12 @@ export async function DELETE(
 ) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage deals" },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const dealId = Number(id);
     if (Number.isNaN(dealId)) {
@@ -197,7 +217,7 @@ export async function DELETE(
     if (!existing) {
       return NextResponse.json({ error: "Deal not found" }, { status: 404 });
     }
-    assertBranchAccess(auth, existing.branch_id);
+    await assertBranchWriteAccess(auth, existing.branch_id);
 
     await prisma.$transaction(async (tx) => {
       await tx.dealItem.deleteMany({ where: { deal_id: dealId } });

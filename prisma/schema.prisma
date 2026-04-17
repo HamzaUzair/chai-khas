@@ -15,6 +15,12 @@ enum UserStatus {
   Suspended
 }
 
+enum RestaurantStatus {
+  Active
+  Inactive
+  Suspended
+}
+
 enum BranchStatus {
   Active
   Inactive
@@ -141,16 +147,43 @@ model MenuVariation {
   @@map("menu_item_variations")
 }
 
+/// Platform tenant. Each Restaurant is an isolated SaaS tenant that
+/// can own many Branches. A Restaurant is created/managed by the
+/// Platform Super Admin and is operated by a Restaurant Admin.
+model Restaurant {
+  restaurant_id         Int      @id @default(autoincrement())
+  name                  String
+  slug                  String   @unique
+  phone                 String?
+  address               String?
+  status                String   @default("Active")
+  /// When false the tenant behaves as a single-branch restaurant: the
+  /// Restaurant Admin can't create more branches, the "Branches" module is
+  /// hidden in the sidebar, and all operational data flows through a single
+  /// default branch created automatically on tenant provisioning.
+  has_multiple_branches Boolean  @default(true)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  branches Branch[]
+  users    User[]
+  orders   Order[]
+
+  @@index([status])
+  @@map("restaurants")
+}
+
 model Branch {
   branch_id           Int                  @id @default(autoincrement())
   branch_name         String
   branch_code         String               @unique
+  restaurant_id       Int
   address             String?
-  phone               String?
-  email               String?
+  city                String               @default("")
   status              String               @default("Active")
   created_at          DateTime             @default(now())
   updated_at          DateTime             @updatedAt
+  restaurant          Restaurant           @relation(fields: [restaurant_id], references: [restaurant_id], onDelete: Cascade)
   categories          Category[]
   customers           Customer[]
   dayends             DayEnd[]
@@ -172,6 +205,7 @@ model Branch {
   payments            Payment[]
   menus               Menu[]
 
+  @@index([restaurant_id])
   @@map("branches")
 }
 
@@ -181,7 +215,8 @@ model User {
   password            String
   fullname            String?
   token               String?
-  role                String               @default("BRANCH_ADMIN")
+  role                String               @default("RESTAURANT_ADMIN")
+  restaurant_id       Int?
   branch_id           Int?
   status              String               @default("Active")
   terminal            Int                  @default(1)
@@ -189,11 +224,13 @@ model User {
   updated_at          DateTime             @updatedAt
   dayends_closed      DayEnd[]             @relation("ClosedBy")
   orders_taken        Order[]              @relation("OrderTaker")
+  restaurant          Restaurant?          @relation(fields: [restaurant_id], references: [restaurant_id])
   branch              Branch?              @relation(fields: [branch_id], references: [branch_id])
   userRoleAssignments UserRoleAssignment[]
   stockTransactions   StockTransaction[]
   payments            Payment[]
 
+  @@index([restaurant_id])
   @@index([branch_id])
   @@index([username])
   @@map("users")
@@ -533,6 +570,7 @@ model Order {
   terminal         Int         @default(1)
   order_taker_id   Int
   branch_id        Int
+  restaurant_id    Int
   customer_id      Int?
   g_total_amount   Decimal     @default(0.00)
   service_charge   Decimal     @default(0.00)
@@ -545,6 +583,7 @@ model Order {
   bill             Bill?
   order_items      OrderItem[]
   branch           Branch      @relation(fields: [branch_id], references: [branch_id])
+  restaurant       Restaurant  @relation(fields: [restaurant_id], references: [restaurant_id])
   customer         Customer?   @relation(fields: [customer_id], references: [customer_id])
   hall             Hall?       @relation(fields: [hall_id], references: [hall_id])
   order_taker      User        @relation("OrderTaker", fields: [order_taker_id], references: [id])
@@ -552,11 +591,13 @@ model Order {
   payments         Payment[]
 
   @@index([branch_id])
+  @@index([restaurant_id])
   @@index([customer_id])
   @@index([order_taker_id])
   @@index([table_id])
   @@index([hall_id])
   @@index([branch_id, terminal])
+  @@index([restaurant_id, created_at])
   @@index([order_status])
   @@map("orders")
 }

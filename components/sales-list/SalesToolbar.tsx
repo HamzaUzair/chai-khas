@@ -29,6 +29,7 @@ interface SalesToolbarProps {
   onSearchChange: (v: string) => void;
   branchId: number | "all";
   onBranchChange: (v: number | "all") => void;
+  lockBranchId?: number | null;
   status: SaleStatus | "all";
   onStatusChange: (v: SaleStatus | "all") => void;
   payment: PaymentMethod | "all";
@@ -46,8 +47,8 @@ interface SalesToolbarProps {
 const statuses: SaleStatus[] = [
   "Pending",
   "Running",
-  "Bill Generated",
-  "Complete",
+  "Served",
+  "Paid",
   "Cancelled",
   "Credit",
 ];
@@ -71,6 +72,7 @@ const SalesToolbar: React.FC<SalesToolbarProps> = ({
   onSearchChange,
   branchId,
   onBranchChange,
+  lockBranchId = null,
   status,
   onStatusChange,
   payment,
@@ -140,8 +142,11 @@ const SalesToolbar: React.FC<SalesToolbarProps> = ({
               onChange={(e) =>
                 onBranchChange(e.target.value === "all" ? "all" : Number(e.target.value))
               }
+              disabled={Boolean(lockBranchId) || (branches.length === 1 && branchId !== "all")}
             >
-              <option value="all">All Branches</option>
+              {!lockBranchId && !(branches.length === 1 && branchId !== "all") && (
+                <option value="all">All Branches</option>
+              )}
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}

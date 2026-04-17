@@ -21,6 +21,13 @@ import {
   Trophy,
   TrendingDown,
   Loader2,
+  Store,
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle2,
+  GitBranch,
+  Activity,
+  Clock3,
 } from "lucide-react";
 import type { DashboardStats } from "@/types/dashboard";
 import { apiFetch, getAuthSession } from "@/lib/auth-client";
@@ -48,6 +55,8 @@ export default function DashboardPage() {
   const [authorized, setAuthorized] = useState(false);
   const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
   const [sessionRole, setSessionRole] = useState<string>("SUPER_ADMIN");
+  const [sessionRestaurantHasMultipleBranches, setSessionRestaurantHasMultipleBranches] =
+    useState<boolean | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -56,8 +65,15 @@ export default function DashboardPage() {
     if (!session) {
       router.replace("/login");
     } else {
+      if (session.role === "ORDER_TAKER") {
+        router.replace("/create-order");
+        return;
+      }
       setSessionBranchId(session.branchId ?? null);
       setSessionRole(session.role);
+      setSessionRestaurantHasMultipleBranches(
+        session.restaurantHasMultipleBranches ?? null
+      );
       setAuthorized(true);
     }
   }, [router]);
@@ -68,7 +84,7 @@ export default function DashboardPage() {
       setStatsLoading(true);
       try {
         const qs =
-          sessionBranchId && sessionRole === "BRANCH_ADMIN"
+          sessionBranchId
             ? `?branchId=${sessionBranchId}`
             : "";
         const res = await apiFetch(`/api/stats/dashboard${qs}`);
@@ -90,6 +106,254 @@ export default function DashboardPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin h-8 w-8 border-4 border-[#ff5a1f] border-t-transparent rounded-full" />
       </div>
+    );
+  }
+
+  if (sessionRole === "SUPER_ADMIN") {
+    const sa = stats?.superAdmin;
+    const overview = sa?.platformOverview;
+    const completion = sa?.charts.adminAssignmentCompletion;
+    const restaurantCompletion = completion?.totalRestaurants
+      ? Math.round((completion.restaurantsWithAdmin / completion.totalRestaurants) * 100)
+      : 0;
+    const branchCompletion = completion?.totalBranches
+      ? Math.round((completion.branchesWithAdmin / completion.totalBranches) * 100)
+      : 0;
+
+    const topCards = [
+      { label: "Total Restaurants", value: overview?.totalRestaurants ?? 0, icon: <Store size={18} />, tint: "text-slate-700 bg-slate-100" },
+      { label: "Active Restaurants", value: overview?.activeRestaurants ?? 0, icon: <CheckCircle2 size={18} />, tint: "text-emerald-700 bg-emerald-100" },
+      { label: "Single-Branch Restaurants", value: overview?.singleBranchRestaurants ?? 0, icon: <Building2 size={18} />, tint: "text-blue-700 bg-blue-100" },
+      { label: "Multi-Branch Restaurants", value: overview?.multiBranchRestaurants ?? 0, icon: <GitBranch size={18} />, tint: "text-violet-700 bg-violet-100" },
+      { label: "Total Branches", value: overview?.totalBranches ?? 0, icon: <Building2 size={18} />, tint: "text-[#ff5a1f] bg-[#ff5a1f]/10" },
+      { label: "Restaurant Admins", value: overview?.restaurantAdmins ?? 0, icon: <ShieldCheck size={18} />, tint: "text-indigo-700 bg-indigo-100" },
+      { label: "Branch Admins", value: overview?.branchAdmins ?? 0, icon: <ShieldCheck size={18} />, tint: "text-cyan-700 bg-cyan-100" },
+      { label: "Pending Setup", value: overview?.pendingSetup ?? 0, icon: <AlertTriangle size={18} />, tint: "text-amber-700 bg-amber-100" },
+    ];
+
+    return (
+      <DashboardLayout title="Dashboard">
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-gray-900">Platform Control Center</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            SaaS-level visibility across restaurants, branch assignments, and setup health.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+          {topCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start justify-between">
+                <p className="text-xs uppercase tracking-wider text-gray-500">{card.label}</p>
+                <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${card.tint}`}>
+                  {card.icon}
+                </span>
+              </div>
+              <p className="mt-3 text-2xl font-semibold text-gray-900">
+                {statsLoading ? "…" : card.value.toLocaleString()}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-800">Restaurants Created Over Time</h3>
+              <Activity size={16} className="text-gray-400" />
+            </div>
+            <div className="space-y-3">
+              {(sa?.charts.restaurantsCreated ?? []).map((point) => {
+                const max = Math.max(
+                  1,
+                  ...(sa?.charts.restaurantsCreated ?? []).map((x) => x.count)
+                );
+                const width = `${Math.max(8, Math.round((point.count / max) * 100))}%`;
+                return (
+                  <div key={point.label} className="grid grid-cols-[64px_1fr_32px] items-center gap-3">
+                    <span className="text-xs text-gray-500">{point.label}</span>
+                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-[#ff5a1f]" style={{ width }} />
+                    </div>
+                    <span className="text-xs font-medium text-gray-700 text-right">{point.count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-800">Branch Growth Over Time</h3>
+              <GitBranch size={16} className="text-gray-400" />
+            </div>
+            <div className="space-y-3">
+              {(sa?.charts.branchesCreated ?? []).map((point) => {
+                const max = Math.max(
+                  1,
+                  ...(sa?.charts.branchesCreated ?? []).map((x) => x.count)
+                );
+                const width = `${Math.max(8, Math.round((point.count / max) * 100))}%`;
+                return (
+                  <div key={point.label} className="grid grid-cols-[64px_1fr_32px] items-center gap-3">
+                    <span className="text-xs text-gray-500">{point.label}</span>
+                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-violet-500" style={{ width }} />
+                    </div>
+                    <span className="text-xs font-medium text-gray-700 text-right">{point.count}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
+              {(sa?.charts.branchTypeDistribution ?? []).map((x) => (
+                <div key={x.label} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                  <p className="text-gray-500">{x.label}</p>
+                  <p className="mt-1 text-base font-semibold text-gray-900">{x.count}</p>
+                </div>
+              ))}
+              {(sa?.charts.restaurantStatusDistribution ?? []).map((x) => (
+                <div key={x.label} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                  <p className="text-gray-500">{x.label} Restaurants</p>
+                  <p className="mt-1 text-base font-semibold text-gray-900">{x.count}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 space-y-2">
+              <p className="text-xs font-medium text-gray-600">Admin Assignment Completion</p>
+              <div className="text-xs text-gray-500">Restaurant Admins: {restaurantCompletion}%</div>
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-emerald-500" style={{ width: `${restaurantCompletion}%` }} />
+              </div>
+              <div className="text-xs text-gray-500">Branch Admins: {branchCompletion}%</div>
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-cyan-500" style={{ width: `${branchCompletion}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+          <div className="xl:col-span-2 rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-800">Restaurant Management Overview</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-sm">
+                <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                  <tr>
+                    {["Restaurant", "Type", "Branches", "Restaurant Admin", "Branch Admins", "Status", "Created"].map((h) => (
+                      <th key={h} className="px-4 py-3 text-left font-semibold">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(sa?.restaurantOverview ?? []).map((row) => (
+                    <tr key={row.restaurantId} className="border-t border-gray-100 hover:bg-gray-50/70">
+                      <td className="px-4 py-3 font-medium text-gray-800">{row.name}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${row.type === "Multi Branch" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"}`}>
+                          {row.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{row.totalBranches}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${row.restaurantAdminAssigned ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                          {row.restaurantAdminAssigned ? "Assigned" : "Missing"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{row.branchAdminsAssigned}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${row.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-700"}`}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{new Date(row.createdAt).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-800 mb-4">Setup / Attention Alerts</h3>
+            <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+              {(sa?.setupAlerts ?? []).length === 0 ? (
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3 text-sm text-emerald-700">
+                  All restaurants are currently healthy.
+                </div>
+              ) : (
+                (sa?.setupAlerts ?? []).map((alert) => (
+                  <div key={alert.id} className={`rounded-xl border px-3 py-3 ${alert.severity === "critical" ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}>
+                    <p className={`text-xs font-semibold uppercase tracking-wide ${alert.severity === "critical" ? "text-rose-700" : "text-amber-700"}`}>
+                      {alert.title}
+                    </p>
+                    <p className={`mt-1 text-sm ${alert.severity === "critical" ? "text-rose-700" : "text-amber-700"}`}>
+                      {alert.detail}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-800">Branch Assignment Overview</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-sm">
+                <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                  <tr>
+                    {["Restaurant", "Branch", "Code", "Branch Admin", "Status"].map((h) => (
+                      <th key={h} className="px-4 py-3 text-left font-semibold">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(sa?.branchAssignmentOverview ?? []).map((row) => (
+                    <tr key={row.branchId} className="border-t border-gray-100 hover:bg-gray-50/70">
+                      <td className="px-4 py-3 font-medium text-gray-700">{row.restaurantName}</td>
+                      <td className="px-4 py-3 text-gray-800">{row.branchName}</td>
+                      <td className="px-4 py-3 text-gray-600">{row.branchCode}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${row.branchAdminAssigned ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                          {row.branchAdminAssigned ? row.branchAdminName ?? "Assigned" : "Missing"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${row.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-700"}`}>
+                          {row.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock3 size={16} className="text-gray-400" />
+              <h3 className="text-sm font-semibold text-gray-800">Recent Activity</h3>
+            </div>
+            <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
+              {(sa?.recentActivity ?? []).map((event) => (
+                <div key={event.id} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+                  <p className="text-sm text-gray-800">{event.message}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {new Date(event.createdAt).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
     );
   }
 
@@ -144,8 +408,24 @@ export default function DashboardPage() {
   const visibleQuickActions =
     sessionRole === "ORDER_TAKER"
       ? orderTakerQuickActions
+      : sessionRole === "RESTAURANT_ADMIN"
+      ? quickActions.filter(
+          (x) =>
+            x.href !== "/users" &&
+            !(
+              sessionRestaurantHasMultipleBranches === false &&
+              x.href === "/create-order"
+            )
+        )
       : sessionRole === "BRANCH_ADMIN"
-      ? quickActions.filter((x) => x.href !== "/branches" && x.href !== "/users")
+      ? quickActions.filter((x) => x.href !== "/users" && x.href !== "/create-order")
+      : sessionRole === "SUPER_ADMIN"
+      ? quickActions.filter(
+          (x) =>
+            x.href === "/restaurants" ||
+            x.href === "/users" ||
+            x.href === "/advanced-analytics"
+        )
       : quickActions;
 
   return (
@@ -155,18 +435,18 @@ export default function DashboardPage() {
         {sessionRole === "ORDER_TAKER" && (
           <h2 className="text-2xl font-bold text-gray-800">Order Taker Dashboard</h2>
         )}
-        {sessionRole === "BRANCH_ADMIN" && (
-          <h2 className="text-2xl font-bold text-gray-800">Branch Admin Dashboard</h2>
+        {sessionRole === "RESTAURANT_ADMIN" && (
+          <h2 className="text-2xl font-bold text-gray-800">Restaurant Admin Dashboard</h2>
         )}
-        {sessionRole !== "BRANCH_ADMIN" && sessionRole !== "ORDER_TAKER" && (
-          <h2 className="text-2xl font-bold text-gray-800">Super Admin Dashboard</h2>
+        {sessionRole === "SUPER_ADMIN" && (
+          <h2 className="text-2xl font-bold text-gray-800">Restenzo Dashboard</h2>
         )}
         <p className="text-sm text-gray-500 mt-1">
           {sessionRole === "ORDER_TAKER"
             ? "Take branch orders quickly and accurately"
-            : sessionRole === "BRANCH_ADMIN"
-            ? "Branch-level monitoring and analytics"
-            : "Monitoring, analytics, and branch performance"}
+            : sessionRole === "RESTAURANT_ADMIN"
+            ? "Restaurant-level monitoring and analytics"
+            : "Platform monitoring, analytics, and restaurant performance"}
         </p>
       </div>
 

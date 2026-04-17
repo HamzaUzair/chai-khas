@@ -34,6 +34,7 @@ interface HallCardListProps {
   onEdit: (hall: Hall) => void;
   onDelete: (hall: Hall) => void;
   onManageTables?: (hall: Hall) => void;
+  readOnly?: boolean;
 }
 
 const HallCardList: React.FC<HallCardListProps> = ({
@@ -42,6 +43,7 @@ const HallCardList: React.FC<HallCardListProps> = ({
   onEdit,
   onDelete,
   onManageTables,
+  readOnly = false,
 }) => {
   if (loading) {
     return (
@@ -92,31 +94,33 @@ const HallCardList: React.FC<HallCardListProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 pt-2.5 border-t border-gray-50">
-            <button
-              onClick={() => onEdit(hall)}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-xs font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
-            >
-              <Pencil size={13} />
-              Edit
-            </button>
-            {onManageTables && (
+          {!readOnly && (
+            <div className="flex items-center gap-2 pt-2.5 border-t border-gray-50">
               <button
-                onClick={() => onManageTables(hall)}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-600 text-xs font-semibold hover:bg-blue-50 transition-colors cursor-pointer"
+                onClick={() => onEdit(hall)}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#ff5a1f]/30 text-[#ff5a1f] text-xs font-semibold hover:bg-[#ff5a1f]/5 transition-colors cursor-pointer"
               >
-                <ListTree size={13} />
-                Tables
+                <Pencil size={13} />
+                Edit
               </button>
-            )}
-            <button
-              onClick={() => onDelete(hall)}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-colors cursor-pointer"
-            >
-              <Trash2 size={13} />
-              Delete
-            </button>
-          </div>
+              {onManageTables && (
+                <button
+                  onClick={() => onManageTables(hall)}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-600 text-xs font-semibold hover:bg-blue-50 transition-colors cursor-pointer"
+                >
+                  <ListTree size={13} />
+                  Tables
+                </button>
+              )}
+              <button
+                onClick={() => onDelete(hall)}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-colors cursor-pointer"
+              >
+                <Trash2 size={13} />
+                Delete
+              </button>
+            </div>
+          )}
         </div>
       ))}
     </div>

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, getScopedBranchId, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  buildBranchScopeFilter,
+  requireAuth,
+} from "@/lib/server-auth";
 
 type IncomingTableRow = {
   name?: string;
@@ -93,11 +98,11 @@ export async function GET(request: NextRequest) {
 
     const requestedBranchId =
       branchIdParam && branchIdParam !== "all" ? Number(branchIdParam) : null;
-    const scopedBranchId = getScopedBranchId(auth, requestedBranchId);
+    const scope = await buildBranchScopeFilter(auth, requestedBranchId);
 
     const halls = await prisma.hall.findMany({
       where: {
-        ...(scopedBranchId ? { branch_id: scopedBranchId } : {}),
+        ...scope,
         ...(search
           ? {
               OR: [
@@ -136,6 +141,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage halls" },
+        { status: 403 }
+      );
+    }
     const body = await request.json();
     const {
       name,
@@ -160,7 +171,7 @@ export async function POST(request: NextRequest) {
     if (Number.isNaN(branchIdNum)) {
       return NextResponse.json({ error: "Invalid branch" }, { status: 400 });
     }
-    assertBranchAccess(auth, branchIdNum);
+    await assertBranchWriteAccess(auth, branchIdNum);
 
     const branch = await prisma.branch.findUnique({
       where: { branch_id: branchIdNum },

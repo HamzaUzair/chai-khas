@@ -40,6 +40,7 @@ interface MenuTableProps {
   loading: boolean;
   onEdit: (item: MenuItem) => void;
   onDelete: (item: MenuItem) => void;
+  readOnly?: boolean;
 }
 
 const MenuTable: React.FC<MenuTableProps> = ({
@@ -47,6 +48,7 @@ const MenuTable: React.FC<MenuTableProps> = ({
   loading,
   onEdit,
   onDelete,
+  readOnly = false,
 }) => {
   if (loading) {
     return (
@@ -80,7 +82,10 @@ const MenuTable: React.FC<MenuTableProps> = ({
         <table className="w-full text-sm min-w-[760px]">
           <thead>
             <tr className="bg-gray-50/80 border-b border-gray-100">
-              {["Name", "Category", "Branch", "Price", "Status", "Actions"].map(
+              {(readOnly
+                ? ["Name", "Category", "Branch", "Price", "Status"]
+                : ["Name", "Category", "Branch", "Price", "Status", "Actions"]
+              ).map(
                 (col) => (
                   <th
                     key={col}
@@ -165,24 +170,26 @@ const MenuTable: React.FC<MenuTableProps> = ({
                 </td>
 
                 {/* Actions */}
-                <td className="px-5 py-3.5 whitespace-nowrap">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => onEdit(item)}
-                      className="p-2 rounded-lg text-gray-400 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors cursor-pointer"
-                      title="Edit"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(item)}
-                      className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
-                      title="Delete"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </td>
+                {!readOnly && (
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => onEdit(item)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors cursor-pointer"
+                        title="Edit"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(item)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                        title="Delete"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

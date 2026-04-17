@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { assertBranchAccess, AuthError, requireAuth } from "@/lib/server-auth";
+import {
+  assertBranchWriteAccess,
+  AuthError,
+  requireAuth,
+} from "@/lib/server-auth";
 
 /* ── PUT /api/categories/[id] ── */
 export async function PUT(
@@ -9,6 +13,12 @@ export async function PUT(
 ) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage categories" },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const categoryId = parseInt(id, 10);
 
@@ -39,7 +49,7 @@ export async function PUT(
         { status: 404 }
       );
     }
-    assertBranchAccess(auth, existing.branch_id);
+    await assertBranchWriteAccess(auth, existing.branch_id);
 
     const updated = await prisma.category.update({
       where: { category_id: categoryId },
@@ -112,6 +122,12 @@ export async function DELETE(
 ) {
   try {
     const auth = await requireAuth(request);
+    if (auth.role === "ORDER_TAKER") {
+      return NextResponse.json(
+        { error: "Order Taker cannot manage categories" },
+        { status: 403 }
+      );
+    }
     const { id } = await params;
     const categoryId = parseInt(id, 10);
 
@@ -133,7 +149,7 @@ export async function DELETE(
       );
     }
 
-    assertBranchAccess(auth, category.branch_id);
+    await assertBranchWriteAccess(auth, category.branch_id);
 
     // Menu module stores items in `menu` table by category name (text).
     // Delete those rows together with category to keep counts/data consistent.
