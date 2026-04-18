@@ -62,12 +62,12 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Expense totals per (branch, business_date) so the history row reflects
-    // the live expense figure even if expenses were added after closure.
-    // We still expose the snapshot `expences` column for closure-time truth.
+    // We return the snapshot values captured at Close Day time (from
+    // `total_expenses` / `total_sales`) rather than recomputing live, so the
+    // history reflects the closure-time truth.
     const records: DayEndRecord[] = rows.map((r) => {
       const totalSales = Number(r.total_sales);
-      const totalExpenses = Number(r.expences);
+      const totalExpenses = Number(r.total_expenses);
       return {
         id: r.id,
         date: formatDate(r.business_date),

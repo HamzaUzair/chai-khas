@@ -462,7 +462,7 @@ export async function POST(request: NextRequest) {
         total_easypaisa: new Prisma.Decimal(totals.Online),
         credit_sales: new Prisma.Decimal(totals.Credit),
         total_sales: new Prisma.Decimal(totalSales),
-        expences: new Prisma.Decimal(totalExpenses),
+        total_expenses: new Prisma.Decimal(totalExpenses),
         closing_balance: new Prisma.Decimal(netRevenue),
         total_orders: booked.length,
         cancelled_orders: cancelled.length,

@@ -12,54 +12,16 @@ type IncomingDealItem = {
   quantity?: number;
 };
 
-async function getOrCreateDishFromMenu(
-  branchId: number,
-  menuId: number,
-  fallbackName?: string
-) {
-  const menu = await prisma.menu.findFirst({
+async function getDishForMenu(branchId: number, menuId: number) {
+  const item = await prisma.menuItem.findFirst({
     where: {
-      id: menuId,
-      branchId,
-      status: "ACTIVE",
-    },
-    select: {
-      itemName: true,
-      category: true,
-      price: true,
-    },
-  });
-  if (!menu) return null;
-
-  const existingDish = await prisma.menuItem.findFirst({
-    where: {
+      dish_id: menuId,
       branch_id: branchId,
-      name: menu.itemName,
-    },
-    select: { dish_id: true, name: true },
-  });
-  if (existingDish) return existingDish;
-
-  const category = await prisma.category.findFirst({
-    where: {
-      branch_id: branchId,
-      name: menu.category,
-    },
-    select: { category_id: true },
-  });
-  if (!category) return null;
-
-  return prisma.menuItem.create({
-    data: {
-      name: fallbackName?.trim() || menu.itemName,
-      category_id: category.category_id,
-      branch_id: branchId,
-      price: menu.price,
-      is_available: 1,
       status: "ACTIVE",
     },
     select: { dish_id: true, name: true },
   });
+  return item;
 }
 
 /* ── PUT /api/deals/[id] ── */
@@ -141,7 +103,7 @@ export async function PUT(
       await tx.dealItem.deleteMany({ where: { deal_id: dealId } });
 
       for (const item of normalizedItems) {
-        const dish = await getOrCreateDishFromMenu(branchIdNum, item.id, item.name);
+        const dish = await getDishForMenu(branchIdNum, item.id);
         if (!dish) continue;
 
         await tx.dealItem.create({

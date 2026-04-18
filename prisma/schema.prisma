@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// ── Enums for core domain ──
+/// ── Enums for core domain ──────────────────────────────────────────────────
 
 enum UserStatus {
   Active
@@ -68,23 +68,6 @@ enum PaymentStatus {
   REFUNDED
 }
 
-enum InventoryUnit {
-  KG
-  G
-  LITER
-  ML
-  PIECE
-  PACK
-}
-
-enum StockTransactionType {
-  PURCHASE
-  ADJUSTMENT
-  WASTAGE
-  RECIPE_DEDUCTION
-  OPENING_STOCK
-}
-
 enum TableStatus {
   AVAILABLE
   OCCUPIED
@@ -97,52 +80,11 @@ enum MenuItemStatus {
   INACTIVE
 }
 
-/// Dedicated table for menu module (PostgreSQL table name: "menu")
-model Menu {
-  id            Int            @id @default(autoincrement())
-  itemName      String
-  description   String?
-  branchId      Int
-  category      String
-  price         Decimal        @default(0.00)
-  hasVariations Boolean        @default(false)
-  basePrice     Decimal?
-  status        MenuItemStatus @default(ACTIVE)
-  sku           String?
-  image         String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+/// ── Platform & tenancy ─────────────────────────────────────────────────────
 
-  branch     Branch          @relation(fields: [branchId], references: [branch_id])
-  variations MenuVariation[]
-
-  @@index([branchId])
-  @@index([category])
-  @@index([status])
-  @@index([createdAt])
-  @@map("menu")
-}
-
-model MenuVariation {
-  id        Int      @id @default(autoincrement())
-  menuId    Int
-  name      String
-  price     Decimal  @default(0.00)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  menu Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
-
-  @@unique([menuId, name])
-  @@index([menuId])
-  @@index([sortOrder])
-  @@map("menu_item_variations")
-}
-
-/// Platform tenant. Each Restaurant is an isolated SaaS tenant that
-/// can own many Branches. A Restaurant is created/managed by the
-/// Platform Super Admin and is operated by a Restaurant Admin.
+/// Platform tenant. Each Restaurant is an isolated SaaS tenant that can own
+/// many Branches. A Restaurant is created/managed by the Platform Super Admin
+/// and is operated by a Restaurant Admin.
 model Restaurant {
   restaurant_id         Int      @id @default(autoincrement())
   name                  String
@@ -167,61 +109,55 @@ model Restaurant {
 }
 
 model Branch {
-  branch_id           Int                  @id @default(autoincrement())
-  branch_name         String
-  branch_code         String               @unique
-  restaurant_id       Int
-  address             String?
-  city                String               @default("")
-  status              String               @default("Active")
-  created_at          DateTime             @default(now())
-  updated_at          DateTime             @updatedAt
-  restaurant          Restaurant           @relation(fields: [restaurant_id], references: [restaurant_id], onDelete: Cascade)
-  categories          Category[]
-  customers           Customer[]
-  dayends             DayEnd[]
-  menu_items          MenuItem[]
-  expenses            Expense[]
-  halls               Hall[]
-  inventory_items     InventoryItem[]
-  kitchens            Kitchen[]
-  order_items         OrderItem[]
-  orders              Order[]
-  recipes             Recipe[]
-  tables              Table[]
-  users               User[]
-  userRoleAssignments UserRoleAssignment[]
-  deals               Deal[]
-  branchInventories   BranchInventory[]
-  stockTransactions   StockTransaction[]
-  payments            Payment[]
-  menus               Menu[]
+  branch_id     Int      @id @default(autoincrement())
+  branch_name   String
+  branch_code   String   @unique
+  restaurant_id Int
+  address       String?
+  city          String   @default("")
+  status        String   @default("Active")
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  restaurant  Restaurant  @relation(fields: [restaurant_id], references: [restaurant_id], onDelete: Cascade)
+  categories  Category[]
+  dayends     DayEnd[]
+  menu_items  MenuItem[]
+  expenses    Expense[]
+  halls       Hall[]
+  order_items OrderItem[]
+  orders      Order[]
+  tables      Table[]
+  users       User[]
+  deals       Deal[]
+  payments    Payment[]
 
   @@index([restaurant_id])
   @@map("branches")
 }
 
 model User {
-  id                  Int                  @id @default(autoincrement())
-  username            String               @unique
-  password            String
-  fullname            String?
-  token               String?
-  role                String               @default("RESTAURANT_ADMIN")
-  restaurant_id       Int?
-  branch_id           Int?
-  status              String               @default("Active")
-  terminal            Int                  @default(1)
-  created_at          DateTime             @default(now())
-  updated_at          DateTime             @updatedAt
-  dayends_closed      DayEnd[]             @relation("ClosedBy")
-  expenses_created    Expense[]            @relation("ExpenseCreatedBy")
-  orders_taken        Order[]              @relation("OrderTaker")
-  restaurant          Restaurant?          @relation(fields: [restaurant_id], references: [restaurant_id])
-  branch              Branch?              @relation(fields: [branch_id], references: [branch_id])
-  userRoleAssignments UserRoleAssignment[]
-  stockTransactions   StockTransaction[]
-  payments            Payment[]
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  password      String
+  fullname      String?
+  token         String?
+  role          String   @default("RESTAURANT_ADMIN")
+  restaurant_id Int?
+  branch_id     Int?
+  status        String   @default("Active")
+  /// Legacy single-terminal POS marker. Kept for DB-stable FKs but no longer
+  /// surfaced in the UI. Always written as 1 by the current app.
+  terminal      Int      @default(1)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  dayends_closed   DayEnd[]    @relation("ClosedBy")
+  expenses_created Expense[]   @relation("ExpenseCreatedBy")
+  orders_taken     Order[]     @relation("OrderTaker")
+  restaurant       Restaurant? @relation(fields: [restaurant_id], references: [restaurant_id])
+  branch           Branch?     @relation(fields: [branch_id], references: [branch_id])
+  payments         Payment[]
 
   @@index([restaurant_id])
   @@index([branch_id])
@@ -229,68 +165,22 @@ model User {
   @@map("users")
 }
 
-/// Role-based auth (extensible)
-model Role {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  users       UserRoleAssignment[]
-  permissions RolePermission[]
-}
-
-model Permission {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
-  description String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  roles RolePermission[]
-}
-
-/// Many-to-many between users and roles (supports multi-branch in future)
-model UserRoleAssignment {
-  id         Int      @id @default(autoincrement())
-  user_id    Int
-  role_id    Int
-  branch_id  Int?
-  created_at DateTime @default(now())
-
-  user   User    @relation(fields: [user_id], references: [id])
-  role   Role    @relation(fields: [role_id], references: [id])
-  branch Branch? @relation(fields: [branch_id], references: [branch_id])
-
-  @@unique([user_id, role_id, branch_id])
-  @@index([branch_id])
-}
-
-/// Many-to-many between roles and permissions
-model RolePermission {
-  id            Int      @id @default(autoincrement())
-  role_id       Int
-  permission_id Int
-  created_at    DateTime @default(now())
-
-  role       Role       @relation(fields: [role_id], references: [id])
-  permission Permission @relation(fields: [permission_id], references: [id])
-
-  @@unique([role_id, permission_id])
-}
+/// ── Floor plan ────────────────────────────────────────────────────────────
 
 model Hall {
   hall_id    Int      @id @default(autoincrement())
   name       String
   capacity   Int      @default(0)
+  /// Legacy multi-terminal marker (see User.terminal). Always 1 in the
+  /// current app; retained for historical rows.
   terminal   Int      @default(1)
   branch_id  Int
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
-  branch     Branch   @relation(fields: [branch_id], references: [branch_id])
-  orders     Order[]
-  tables     Table[]
+
+  branch Branch   @relation(fields: [branch_id], references: [branch_id])
+  orders Order[]
+  tables Table[]
 
   @@index([branch_id])
   @@index([branch_id, terminal])
@@ -307,9 +197,10 @@ model Table {
   status       String   @default("Available")
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
-  orders       Order[]
-  branch       Branch   @relation(fields: [branch_id], references: [branch_id])
-  hall         Hall     @relation(fields: [hall_id], references: [hall_id])
+
+  orders Order[]
+  branch Branch @relation(fields: [branch_id], references: [branch_id])
+  hall   Hall   @relation(fields: [hall_id], references: [hall_id])
 
   @@unique([hall_id, table_number, branch_id, terminal])
   @@index([branch_id])
@@ -318,76 +209,91 @@ model Table {
   @@map("tables")
 }
 
-model Kitchen {
-  kitchen_id Int        @id @default(autoincrement())
-  title      String
-  code       String
-  printer    String?
-  branch_id  Int
-  terminal   Int        @default(1)
-  status     Int        @default(1)
-  created_at DateTime   @default(now())
-  updated_at DateTime   @updatedAt
-  categories Category[]
-  branch     Branch     @relation(fields: [branch_id], references: [branch_id])
-
-  @@unique([code, branch_id, terminal])
-  @@index([branch_id])
-  @@index([branch_id, terminal])
-  @@map("kitchens")
-}
+/// ── Menu catalog ───────────────────────────────────────────────────────────
 
 model Category {
-  category_id Int        @id @default(autoincrement())
-  kid         Int        @default(0)
+  category_id Int      @id @default(autoincrement())
+  /// "Kid" flag used to mark inactive categories (0 = active, 1 = inactive).
+  /// Named for historical reasons from the desktop POS; kept as-is to avoid
+  /// migrating hundreds of existing rows.
+  kid         Int      @default(0)
   name        String
   description String?
-  kitchen_id  Int?
-  terminal    Int        @default(1)
+  terminal    Int      @default(1)
   branch_id   Int
-  created_at  DateTime   @default(now())
-  updated_at  DateTime   @updatedAt
-  branch      Branch     @relation(fields: [branch_id], references: [branch_id])
-  kitchen     Kitchen?   @relation(fields: [kitchen_id], references: [kitchen_id])
-  menu_items  MenuItem[]
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  branch     Branch     @relation(fields: [branch_id], references: [branch_id])
+  menu_items MenuItem[]
 
   @@index([branch_id])
-  @@index([kitchen_id])
   @@index([branch_id, terminal])
   @@map("categories")
 }
 
-/// Menu items (dishes) - stored in dishes table for backward compatibility
+/// Sellable menu items. Single table for both catalog management (Menu module)
+/// and operational usage (order items, deal items, reports).
+///
+/// The Prisma relation field name is `menu_items` on `Branch` and `Category`,
+/// and the physical table name is `menu_items`. The legacy primary key name
+/// `dish_id` is preserved so existing FKs on `order_items` and `deal_items`
+/// continue to work without data-level changes.
 model MenuItem {
-  dish_id      Int            @id @default(autoincrement())
-  name         String
-  description  String?
-  price        Decimal        @default(0.00)
-  qnty         Int            @default(0)
-  barcode      String?
-  is_available Int            @default(1)
-  is_frequent  Int            @default(0)
-  discount     Decimal        @default(0.00)
-  category_id  Int
-  terminal     Int            @default(1)
-  branch_id    Int
-  status       MenuItemStatus @default(ACTIVE)
-  created_at   DateTime       @default(now())
-  updated_at   DateTime       @updatedAt
-  branch       Branch         @relation(fields: [branch_id], references: [branch_id])
-  category     Category       @relation(fields: [category_id], references: [category_id], onDelete: Cascade)
-  order_items  OrderItem[]
-  recipes      Recipe[]       @relation("MenuItemRecipes")
-  dealItems    DealItem[]
+  dish_id        Int            @id @default(autoincrement())
+  name           String
+  description    String?
+  price          Decimal        @default(0.00)
+  base_price     Decimal?
+  has_variations Boolean        @default(false)
+  sku            String?
+  image          String?
+  /// Hide synthetic variant rows (e.g. "Tea (Small)" created by the order
+  /// flow) from the Menu module listing.
+  show_in_menu   Boolean        @default(true)
+  category_id    Int
+  /// Legacy single-terminal marker; always 1 in the current app.
+  terminal       Int            @default(1)
+  branch_id      Int
+  status         MenuItemStatus @default(ACTIVE)
+  created_at     DateTime       @default(now())
+  updated_at     DateTime       @updatedAt
+
+  branch      Branch          @relation(fields: [branch_id], references: [branch_id])
+  category    Category        @relation(fields: [category_id], references: [category_id], onDelete: Cascade)
+  order_items OrderItem[]
+  dealItems   DealItem[]
+  variations  MenuVariation[]
 
   @@index([branch_id])
   @@index([category_id])
   @@index([status])
   @@index([created_at])
   @@index([branch_id, terminal])
-  @@index([branch_id, category_id, is_available])
-  @@map("dishes")
+  @@index([branch_id, category_id])
+  @@map("menu_items")
 }
+
+/// Named price variations for a menu item (e.g. Small / Medium / Large).
+/// `menuId` references `menu_items.dish_id`.
+model MenuVariation {
+  id        Int      @id @default(autoincrement())
+  menuId    Int
+  name      String
+  price     Decimal  @default(0.00)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  menu MenuItem @relation(fields: [menuId], references: [dish_id], onDelete: Cascade)
+
+  @@unique([menuId, name])
+  @@index([menuId])
+  @@index([sortOrder])
+  @@map("menu_item_variations")
+}
+
+/// ── Promotions ────────────────────────────────────────────────────────────
 
 /// Promotional deals (branch-specific or global)
 model Deal {
@@ -396,7 +302,9 @@ model Deal {
   name           String
   description    String?
   status         DealStatus @default(Active)
-  discount_type  String // e.g. "PERCENTAGE" or "FIXED"
+  /// "PERCENTAGE" or "FIXED". Free-text today; a DealDiscountType enum is on
+  /// the roadmap but kept out of this cleanup to avoid rewrites.
+  discount_type  String
   discount_value Decimal    @default(0.0)
   starts_at      DateTime?
   ends_at        DateTime?
@@ -409,7 +317,7 @@ model Deal {
   @@index([branch_id])
 }
 
-/// Items included in a deal (ties to current menu items)
+/// Items included in a deal (ties to menu items).
 model DealItem {
   id         Int      @id @default(autoincrement())
   deal_id    Int
@@ -423,148 +331,43 @@ model DealItem {
   @@unique([deal_id, dish_id])
 }
 
-/// Inventory items (future database-backed stock items)
-model InventoryItem {
-  inventory_item_id Int                @id @default(autoincrement())
-  name              String
-  sku               String?
-  unit              InventoryUnit
-  branch_id         Int?
-  created_at        DateTime           @default(now())
-  updated_at        DateTime           @updatedAt
-  branch            Branch?            @relation(fields: [branch_id], references: [branch_id])
-  recipes           RecipeIngredient[] @relation("InventoryItemRecipeIngredients")
-  branchInventories BranchInventory[]
-  stockTransactions StockTransaction[]
-
-  @@index([branch_id])
-  @@map("inventory_items")
-}
-
-/// Per-branch stock levels (snapshot)
-model BranchInventory {
-  id                  Int      @id @default(autoincrement())
-  branch_id           Int
-  inventory_item_id   Int
-  quantity            Decimal  @default(0.0)
-  low_stock_threshold Decimal? @default(0.0)
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
-
-  branch         Branch        @relation(fields: [branch_id], references: [branch_id])
-  inventory_item InventoryItem @relation(fields: [inventory_item_id], references: [inventory_item_id])
-
-  @@unique([branch_id, inventory_item_id])
-  @@index([branch_id])
-}
-
-/// Stock movements for audit and analytics
-model StockTransaction {
-  id                Int                  @id @default(autoincrement())
-  branch_id         Int
-  inventory_item_id Int
-  transaction_type  StockTransactionType
-  quantity          Decimal              @default(0.0)
-  unit_cost         Decimal?             @default(0.0)
-  note              String?
-  created_at        DateTime             @default(now())
-  created_by_id     Int?
-
-  branch         Branch        @relation(fields: [branch_id], references: [branch_id])
-  inventory_item InventoryItem @relation(fields: [inventory_item_id], references: [inventory_item_id])
-  created_by     User?         @relation(fields: [created_by_id], references: [id])
-
-  @@index([branch_id, inventory_item_id])
-  @@index([transaction_type])
-  @@index([created_at])
-}
-
-/// Recipe header per menu item
-model Recipe {
-  id           Int                @id @default(autoincrement())
-  menu_item_id Int
-  branch_id    Int?
-  status       String             @default("active")
-  created_at   DateTime           @default(now())
-  updated_at   DateTime           @updatedAt
-  items        RecipeIngredient[]
-  branch       Branch?            @relation(fields: [branch_id], references: [branch_id])
-  menu_item    MenuItem           @relation("MenuItemRecipes", fields: [menu_item_id], references: [dish_id])
-
-  @@index([menu_item_id])
-  @@index([branch_id])
-  @@map("recipes")
-}
-
-/// Individual ingredient lines within a recipe
-model RecipeIngredient {
-  id                Int           @id @default(autoincrement())
-  recipe_id         Int
-  inventory_item_id Int
-  quantity          Decimal       @default(0.0)
-  unit              String
-  wastage_percent   Decimal?      @default(0.0)
-  notes             String?
-  created_at        DateTime      @default(now())
-  updated_at        DateTime      @updatedAt
-  inventory_item    InventoryItem @relation("InventoryItemRecipeIngredients", fields: [inventory_item_id], references: [inventory_item_id])
-  recipe            Recipe        @relation(fields: [recipe_id], references: [id])
-
-  @@index([recipe_id])
-  @@index([inventory_item_id])
-  @@map("recipe_ingredients")
-}
-
-model Customer {
-  customer_id Int      @id @default(autoincrement())
-  name        String
-  phone       String?
-  email       String?
-  address     String?
-  balance     Decimal  @default(0.00)
-  branch_id   Int?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-  branch      Branch?  @relation(fields: [branch_id], references: [branch_id])
-  orders      Order[]
-
-  @@index([branch_id])
-  @@map("customers")
-}
+/// ── Orders & payments ─────────────────────────────────────────────────────
 
 model Order {
   order_id         Int         @id @default(autoincrement())
+  /// Free-text today ("Dine In" | "Take Away" | "Delivery"). Tightening to
+  /// OrderType enum is planned but kept out of this round because dozens of
+  /// call sites compare against the raw strings.
   order_type       String      @default("Dine In")
+  /// Free-text today (e.g. "Running" | "Served" | "Paid" | "Cancelled").
+  /// OrderStatus enum migration is planned; see schema audit.
   order_status     String      @default("Running")
   hall_id          Int?
   table_id         Int?
   comments         String?
+  /// Legacy single-terminal marker; always 1 in the current app.
   terminal         Int         @default(1)
   order_taker_id   Int
   branch_id        Int
   restaurant_id    Int
-  customer_id      Int?
   g_total_amount   Decimal     @default(0.00)
   service_charge   Decimal     @default(0.00)
   discount_amount  Decimal     @default(0.00)
   net_total_amount Decimal     @default(0.00)
   payment_mode     String      @default("Cash")
-  sts              Int         @default(0)
   created_at       DateTime    @default(now())
   updated_at       DateTime    @updatedAt
-  bill             Bill?
-  order_items      OrderItem[]
-  branch           Branch      @relation(fields: [branch_id], references: [branch_id])
-  restaurant       Restaurant  @relation(fields: [restaurant_id], references: [restaurant_id])
-  customer         Customer?   @relation(fields: [customer_id], references: [customer_id])
-  hall             Hall?       @relation(fields: [hall_id], references: [hall_id])
-  order_taker      User        @relation("OrderTaker", fields: [order_taker_id], references: [id])
-  table            Table?      @relation(fields: [table_id], references: [table_id])
-  payments         Payment[]
+
+  order_items OrderItem[]
+  branch      Branch      @relation(fields: [branch_id], references: [branch_id])
+  restaurant  Restaurant  @relation(fields: [restaurant_id], references: [restaurant_id])
+  hall        Hall?       @relation(fields: [hall_id], references: [hall_id])
+  order_taker User        @relation("OrderTaker", fields: [order_taker_id], references: [id])
+  table       Table?      @relation(fields: [table_id], references: [table_id])
+  payments    Payment[]
 
   @@index([branch_id])
   @@index([restaurant_id])
-  @@index([customer_id])
   @@index([order_taker_id])
   @@index([table_id])
   @@index([hall_id])
@@ -575,16 +378,17 @@ model Order {
 }
 
 model OrderItem {
-  item_id      Int      @id @default(autoincrement())
+  item_id      Int     @id @default(autoincrement())
   order_id     Int
   dish_id      Int
-  quantity     Decimal  @default(1)
-  price        Decimal  @default(0.00)
-  total_amount Decimal  @default(0.00)
+  quantity     Decimal @default(1)
+  price        Decimal @default(0.00)
+  total_amount Decimal @default(0.00)
   branch_id    Int
-  branch       Branch   @relation(fields: [branch_id], references: [branch_id])
-  menu_item    MenuItem @relation(fields: [dish_id], references: [dish_id])
-  order        Order    @relation(fields: [order_id], references: [order_id])
+
+  branch    Branch   @relation(fields: [branch_id], references: [branch_id])
+  menu_item MenuItem @relation(fields: [dish_id], references: [dish_id])
+  order     Order    @relation(fields: [order_id], references: [order_id])
 
   @@index([order_id])
   @@index([dish_id])
@@ -592,25 +396,7 @@ model OrderItem {
   @@map("order_items")
 }
 
-model Bill {
-  bill_id        Int      @id @default(autoincrement())
-  order_id       Int      @unique
-  total_amount   Decimal  @default(0.00)
-  service_charge Decimal  @default(0.00)
-  discount       Decimal  @default(0.00)
-  grand_total    Decimal  @default(0.00)
-  payment_method String   @default("Cash")
-  payment_status String   @default("Unpaid")
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
-  order          Order    @relation(fields: [order_id], references: [order_id])
-
-  @@index([order_id])
-  @@index([payment_status])
-  @@map("bills")
-}
-
-/// Payments for orders (supports multiple methods/future split payments)
+/// Payments for orders (supports multiple methods / future split payments).
 model Payment {
   id            Int           @id @default(autoincrement())
   order_id      Int
@@ -633,6 +419,8 @@ model Payment {
   @@index([status])
 }
 
+/// ── Expenses & day end ────────────────────────────────────────────────────
+
 model Expense {
   id                Int              @id @default(autoincrement())
   title             String
@@ -641,15 +429,15 @@ model Expense {
   branch_id         Int?
   terminal          Int              @default(1)
   payment_method    String?
-  status            String           @default("Active")
   expense_date      DateTime         @default(now())
   created_by_id     Int?
   created_at        DateTime         @default(now())
   updated_at        DateTime         @updatedAt
-  branch            Branch?          @relation(fields: [branch_id], references: [branch_id])
-  expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
   expenseCategoryId Int?
-  created_by        User?            @relation("ExpenseCreatedBy", fields: [created_by_id], references: [id])
+
+  branch          Branch?          @relation(fields: [branch_id], references: [branch_id])
+  expenseCategory ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
+  created_by      User?            @relation("ExpenseCreatedBy", fields: [created_by_id], references: [id])
 
   @@index([branch_id])
   @@index([branch_id, terminal])
@@ -676,7 +464,7 @@ model DayEnd {
   /// closed once.
   business_date     DateTime @default(now()) @db.Date
   opening_balance   Decimal  @default(0.00)
-  expences          Decimal  @default(0.00)
+  total_expenses    Decimal  @default(0.00)
   total_cash        Decimal  @default(0.00)
   total_easypaisa   Decimal  @default(0.00)
   total_bank        Decimal  @default(0.00)
@@ -694,8 +482,9 @@ model DayEnd {
   note              String?
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
-  branch            Branch   @relation(fields: [branch_id], references: [branch_id])
-  closed_by         User     @relation("ClosedBy", fields: [closing_by], references: [id])
+
+  branch    Branch @relation(fields: [branch_id], references: [branch_id])
+  closed_by User   @relation("ClosedBy", fields: [closing_by], references: [id])
 
   @@unique([branch_id, business_date])
   @@index([branch_id])

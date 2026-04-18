@@ -14,58 +14,21 @@ type IncomingDealItem = {
   quantity?: number;
 };
 
-async function getOrCreateDishFromMenu(
-  branchId: number,
-  menuId: number,
-  fallbackName?: string
-) {
-  const menu = await prisma.menu.findFirst({
+/**
+ * Deals reference existing `menu_items.dish_id`. With the merged catalog there
+ * is a single canonical row per menu item, so we just validate that the id is
+ * a live active item in the requested branch.
+ */
+async function getDishForMenu(branchId: number, menuId: number) {
+  const item = await prisma.menuItem.findFirst({
     where: {
-      id: menuId,
-      branchId,
-      status: "ACTIVE",
-    },
-    select: {
-      id: true,
-      itemName: true,
-      category: true,
-      price: true,
-    },
-  });
-
-  if (!menu) return null;
-
-  const existingDish = await prisma.menuItem.findFirst({
-    where: {
+      dish_id: menuId,
       branch_id: branchId,
-      name: menu.itemName,
-    },
-    select: { dish_id: true, name: true },
-  });
-  if (existingDish) return existingDish;
-
-  const category = await prisma.category.findFirst({
-    where: {
-      branch_id: branchId,
-      name: menu.category,
-    },
-    select: { category_id: true },
-  });
-  if (!category) return null;
-
-  const created = await prisma.menuItem.create({
-    data: {
-      name: fallbackName?.trim() || menu.itemName,
-      category_id: category.category_id,
-      branch_id: branchId,
-      price: menu.price,
-      is_available: 1,
       status: "ACTIVE",
     },
     select: { dish_id: true, name: true },
   });
-
-  return created;
+  return item;
 }
 
 /* ── GET /api/deals ── */
@@ -218,7 +181,7 @@ export async function POST(request: NextRequest) {
       });
 
       for (const item of normalizedItems) {
-        const dish = await getOrCreateDishFromMenu(branchIdNum, item.id, item.name);
+        const dish = await getDishForMenu(branchIdNum, item.id);
         if (!dish) continue;
 
         await tx.dealItem.create({

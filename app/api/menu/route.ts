@@ -45,6 +45,50 @@ function validateVariationRows(rows: Array<{ name: string; price: number }>) {
   return null;
 }
 
+type SerializableMenuItem = {
+  dish_id: number;
+  name: string;
+  description: string | null;
+  price: Prisma.Decimal | number | string;
+  base_price: Prisma.Decimal | number | string | null;
+  has_variations: boolean;
+  status: "ACTIVE" | "INACTIVE";
+  branch_id: number;
+  branch: { branch_id: number; branch_name: string };
+  category: { category_id: number; name: string };
+  variations: Array<{
+    id: number;
+    name: string;
+    price: Prisma.Decimal | number | string;
+    sortOrder: number;
+  }>;
+  created_at: Date;
+  updated_at: Date;
+};
+
+function serialize(item: SerializableMenuItem) {
+  return {
+    id: item.dish_id,
+    itemName: item.name,
+    description: item.description,
+    price: Number(item.price),
+    branchId: item.branch_id,
+    branchName: item.branch.branch_name,
+    category: item.category.name,
+    hasVariations: item.has_variations,
+    basePrice: item.base_price === null ? null : Number(item.base_price),
+    variations: item.variations.map((v) => ({
+      id: v.id,
+      name: v.name,
+      price: Number(v.price),
+      sortOrder: v.sortOrder,
+    })),
+    status: item.status === "ACTIVE" ? "active" : "inactive",
+    createdAt: item.created_at.toISOString(),
+    updatedAt: item.updated_at.toISOString(),
+  };
+}
+
 /* ── GET /api/menu ── */
 export async function GET(request: NextRequest) {
   try {
@@ -60,61 +104,45 @@ export async function GET(request: NextRequest) {
     const scopeFilter = await buildBranchScopeFilter(
       auth,
       requestedBranchId,
-      "branchId"
+      "branch_id"
     );
-    const where: Prisma.MenuWhereInput = { ...(scopeFilter as Prisma.MenuWhereInput) };
+    const where: Prisma.MenuItemWhereInput = {
+      ...(scopeFilter as Prisma.MenuItemWhereInput),
+      // Hide synthetic variant rows (e.g. "Tea (Small)") that the order
+      // flow creates; those are never directly browsable in the Menu UI.
+      show_in_menu: true,
+    };
     if (statusParam === "active" || statusParam === "inactive") {
       where.status = statusParam === "active" ? "ACTIVE" : "INACTIVE";
     }
     if (categoryParam && categoryParam !== "all") {
-      where.category = categoryParam;
+      where.category = { name: categoryParam };
     }
     if (searchParam) {
       where.OR = [
-        { itemName: { contains: searchParam, mode: "insensitive" } },
+        { name: { contains: searchParam, mode: "insensitive" } },
         { description: { contains: searchParam, mode: "insensitive" } },
-        { category: { contains: searchParam, mode: "insensitive" } },
+        { category: { name: { contains: searchParam, mode: "insensitive" } } },
       ];
     }
 
-    const items = await prisma.menu.findMany({
+    const items = await prisma.menuItem.findMany({
       where,
       include: {
         branch: {
-          select: {
-            branch_id: true,
-            branch_name: true,
-          },
+          select: { branch_id: true, branch_name: true },
+        },
+        category: {
+          select: { category_id: true, name: true },
         },
         variations: {
           orderBy: { sortOrder: "asc" },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { created_at: "desc" },
     });
 
-    const serialized = items.map((m) => ({
-      id: m.id,
-      itemName: m.itemName,
-      description: m.description,
-      price: Number(m.price),
-      branchId: m.branchId,
-      branchName: m.branch.branch_name,
-      category: m.category,
-      hasVariations: m.hasVariations,
-      basePrice: m.basePrice === null ? null : Number(m.basePrice),
-      variations: m.variations.map((v) => ({
-        id: v.id,
-        name: v.name,
-        price: Number(v.price),
-        sortOrder: v.sortOrder,
-      })),
-      status: m.status === "ACTIVE" ? "active" : "inactive",
-      createdAt: m.createdAt.toISOString(),
-      updatedAt: m.updatedAt.toISOString(),
-    }));
-
-    return NextResponse.json(serialized);
+    return NextResponse.json(items.map(serialize));
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
@@ -165,16 +193,10 @@ export async function POST(request: NextRequest) {
       );
     }
     if (status !== "active" && status !== "inactive") {
-      return NextResponse.json(
-        { error: "Invalid status" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
     if (!branchId) {
-      return NextResponse.json(
-        { error: "Branch is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Branch is required" }, { status: 400 });
     }
     if (!category?.trim()) {
       return NextResponse.json(
@@ -213,89 +235,57 @@ export async function POST(request: NextRequest) {
       where: { branch_id: Number(branchId) },
     });
     if (!branch) {
-      return NextResponse.json(
-        { error: "Branch not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Branch not found" }, { status: 404 });
     }
     await assertBranchWriteAccess(auth, branch.branch_id);
 
-    const categoryExists = await prisma.category.findFirst({
+    const categoryRecord = await prisma.category.findFirst({
       where: {
         branch_id: Number(branchId),
         name: category.trim(),
       },
       select: { category_id: true },
     });
-    if (!categoryExists) {
+    if (!categoryRecord) {
       return NextResponse.json(
         { error: "Selected category is not available for this branch" },
         { status: 400 }
       );
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-      const menu = await tx.menu.create({
-        data: {
-          itemName: itemName.trim(),
-          description: description?.trim() || null,
-          branchId: Number(branchId),
-          category: category?.trim() || "",
-          hasVariations: hasVars,
-          basePrice: hasVars ? null : basePriceNum,
-          // Keep price column compatible; for variable items use min variation price
-          price: hasVars
-            ? Math.min(...normalizedRows.map((r) => r.price))
-            : (basePriceNum ?? 0),
-          status: status === "inactive" ? "INACTIVE" : "ACTIVE",
-          variations: hasVars
-            ? {
-                create: normalizedRows.map((row, idx) => ({
-                  name: row.name,
-                  price: row.price,
-                  sortOrder: idx,
-                })),
-              }
-            : undefined,
-        },
-        include: {
-          branch: {
-            select: {
-              branch_id: true,
-              branch_name: true,
-            },
-          },
-          variations: {
-            orderBy: { sortOrder: "asc" },
-          },
-        },
-      });
-
-      return menu;
+    const created = await prisma.menuItem.create({
+      data: {
+        name: itemName.trim(),
+        description: description?.trim() || null,
+        branch_id: Number(branchId),
+        category_id: categoryRecord.category_id,
+        has_variations: hasVars,
+        base_price: hasVars ? null : basePriceNum,
+        // `price` is kept compatible with order-side readers; for variable
+        // items we store the minimum variation price as the display price.
+        price: hasVars
+          ? Math.min(...normalizedRows.map((r) => r.price))
+          : basePriceNum ?? 0,
+        status: status === "inactive" ? "INACTIVE" : "ACTIVE",
+        show_in_menu: true,
+        variations: hasVars
+          ? {
+              create: normalizedRows.map((row, idx) => ({
+                name: row.name,
+                price: row.price,
+                sortOrder: idx,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        branch: { select: { branch_id: true, branch_name: true } },
+        category: { select: { category_id: true, name: true } },
+        variations: { orderBy: { sortOrder: "asc" } },
+      },
     });
 
-    const serialized = {
-      id: created.id,
-      itemName: created.itemName,
-      description: created.description,
-      price: Number(created.price),
-      branchId: created.branchId,
-      branchName: created.branch.branch_name,
-      category: created.category,
-      hasVariations: created.hasVariations,
-      basePrice: created.basePrice === null ? null : Number(created.basePrice),
-      variations: created.variations.map((v) => ({
-        id: v.id,
-        name: v.name,
-        price: Number(v.price),
-        sortOrder: v.sortOrder,
-      })),
-      status: created.status === "ACTIVE" ? "active" : "inactive",
-      createdAt: created.createdAt.toISOString(),
-      updatedAt: created.updatedAt.toISOString(),
-    };
-
-    return NextResponse.json(serialized, { status: 201 });
+    return NextResponse.json(serialize(created), { status: 201 });
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
@@ -307,4 +297,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

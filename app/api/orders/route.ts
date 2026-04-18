@@ -108,6 +108,12 @@ function toNumber(value: number | string | null | undefined, fallback = 0) {
   return Number.isNaN(n) ? fallback : n;
 }
 
+/**
+ * Returns the synthetic "Deal bundle" row in `menu_items` for a given deal.
+ * These rows are kept for reporting (so deal sales show up as a single line
+ * item on receipts / top-selling reports) but hidden from the Menu UI via
+ * `show_in_menu=false`.
+ */
 async function ensureDealBundleDish(
   tx: Prisma.TransactionClient,
   branchId: number,
@@ -146,74 +152,56 @@ async function ensureDealBundleDish(
       price: 0,
       category_id: category.category_id,
       branch_id: branchId,
-      is_available: 1,
       terminal: 1,
-      qnty: 0,
-      is_frequent: 0,
-      discount: 0,
       status: "ACTIVE",
+      show_in_menu: false,
     },
     select: { dish_id: true },
   });
   return created.dish_id;
 }
 
-async function findOrCreateDishForMenuItem({
-  branchId,
-  menuName,
-  categoryName,
-  price,
-}: {
-  branchId: number;
-  menuName: string;
-  categoryName: string;
-  price: number;
-}) {
-  const existingDish = await prisma.menuItem.findFirst({
+/**
+ * For an order line referencing a variation (e.g. "Tea (Small)"), we keep a
+ * dedicated row in `menu_items` so historical reporting can distinguish
+ * variations. These rows are hidden from the Menu UI via `show_in_menu=false`.
+ */
+async function findOrCreateVariantDish(
+  tx: Prisma.TransactionClient,
+  {
+    branchId,
+    variantName,
+    categoryId,
+    price,
+  }: {
+    branchId: number;
+    variantName: string;
+    categoryId: number;
+    price: number;
+  }
+) {
+  const existing = await tx.menuItem.findFirst({
     where: {
       branch_id: branchId,
-      name: { equals: menuName, mode: "insensitive" },
+      name: { equals: variantName, mode: "insensitive" },
     },
     select: { dish_id: true },
   });
-  if (existingDish) return existingDish.dish_id;
+  if (existing) return existing.dish_id;
 
-  let category = await prisma.category.findFirst({
-    where: {
-      branch_id: branchId,
-      name: { equals: categoryName, mode: "insensitive" },
-    },
-    select: { category_id: true },
-  });
-
-  if (!category) {
-    category = await prisma.category.create({
-      data: {
-        name: categoryName,
-        branch_id: branchId,
-        terminal: 1,
-        kid: 0,
-      },
-      select: { category_id: true },
-    });
-  }
-
-  const created = await prisma.menuItem.create({
+  const created = await tx.menuItem.create({
     data: {
-      name: menuName,
+      name: variantName,
       description: null,
       price,
-      category_id: category.category_id,
+      category_id: categoryId,
       branch_id: branchId,
-      is_available: 1,
       terminal: 1,
-      qnty: 0,
-      is_frequent: 0,
-      discount: 0,
+      status: "ACTIVE",
+      show_in_menu: false,
     },
     select: { dish_id: true },
   });
-
   return created.dish_id;
 }
 
@@ -526,20 +514,33 @@ export async function POST(request: NextRequest) {
       });
 
       for (const row of parsedItems) {
-        const menu = await tx.menu.findUnique({
-          where: { id: row.menuId },
-          select: { id: true, itemName: true, category: true, branchId: true },
+        const menu = await tx.menuItem.findUnique({
+          where: { dish_id: row.menuId },
+          select: {
+            dish_id: true,
+            name: true,
+            branch_id: true,
+            category_id: true,
+          },
         });
-        if (!menu || menu.branchId !== branchId) {
-          throw new AuthError(`Menu item not found for branch: ${row.menuName}`, 400);
+        if (!menu || menu.branch_id !== branchId) {
+          throw new AuthError(
+            `Menu item not found for branch: ${row.menuName}`,
+            400
+          );
         }
 
-        const dishId = await findOrCreateDishForMenuItem({
-          branchId,
-          menuName: row.variationName ? `${menu.itemName} (${row.variationName})` : menu.itemName,
-          categoryName: menu.category || row.categoryName || "General",
-          price: row.unitPrice,
-        });
+        // If the caller chose a variation, we still want a dedicated
+        // menu_items row for it so reporting can tell variants apart (same
+        // behaviour as before the merge). Otherwise we reuse the parent row.
+        const dishId = row.variationName
+          ? await findOrCreateVariantDish(tx, {
+              branchId,
+              variantName: `${menu.name} (${row.variationName})`,
+              categoryId: menu.category_id,
+              price: row.unitPrice,
+            })
+          : menu.dish_id;
 
         await tx.orderItem.create({
           data: {

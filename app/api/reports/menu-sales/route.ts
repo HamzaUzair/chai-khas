@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     const scopedWhere = scope as Prisma.OrderItemWhereInput;
 
     const menuItemWhere: Prisma.MenuItemWhereInput = {
-      ...(activeOnly ? { status: "ACTIVE", is_available: 1 } : {}),
+      ...(activeOnly ? { status: "ACTIVE" } : {}),
       ...(category && category !== "all" ? { category: { name: category } } : {}),
       ...(search
         ? {
@@ -78,7 +78,6 @@ export async function GET(request: NextRequest) {
           select: {
             name: true,
             status: true,
-            is_available: true,
             category: {
               select: { name: true },
             },
@@ -131,7 +130,7 @@ export async function GET(request: NextRequest) {
         revenue: 0,
         itemName: row.menu_item.name,
         category: row.menu_item.category?.name ?? "Uncategorized",
-        isActive: row.menu_item.status === "ACTIVE" && row.menu_item.is_available === 1,
+        isActive: row.menu_item.status === "ACTIVE",
         branchMap: new Map<number, { branchName: string; qty: number; revenue: number }>(),
       };
 

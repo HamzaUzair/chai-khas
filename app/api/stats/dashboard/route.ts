@@ -462,14 +462,10 @@ export async function GET(request: NextRequest) {
     /* ── 8. Alerts ── */
     const alerts: { type: string; message: string }[] = [];
 
-    const lowStock = await prisma.menuItem.findMany({
-      where: { qnty: { lt: 10 }, ...(opScope as Prisma.MenuItemWhereInput) },
-      select: { name: true },
-      take: 5,
-    });
-    lowStock.forEach((m) =>
-      alerts.push({ type: "inventory", message: `${m.name} Stock Low` })
-    );
+    // Inventory alerts were previously derived from a `qnty` column on
+    // `dishes`; the column has been dropped as part of the schema cleanup
+    // (inventory module was never wired up in the live app). Leaving a
+    // placeholder so future work can re-introduce real stock alerts.
 
     const twentyMinsAgo = new Date(now.getTime() - 20 * 60 * 1000);
     const staleOrders = await prisma.order.count({

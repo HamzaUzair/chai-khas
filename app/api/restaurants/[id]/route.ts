@@ -410,54 +410,33 @@ export async function DELETE(
       const orderIds = orders.map((o) => o.order_id);
       if (orderIds.length) {
         await tx.payment.deleteMany({ where: { order_id: { in: orderIds } } });
-        await tx.bill.deleteMany({ where: { order_id: { in: orderIds } } });
         await tx.orderItem.deleteMany({ where: { order_id: { in: orderIds } } });
         await tx.order.deleteMany({ where: { order_id: { in: orderIds } } });
       }
 
       if (branchIds.length) {
-        // 2. Deal items reference dishes; delete them first.
+        // 2. Deal items reference menu items; delete them first.
         await tx.dealItem.deleteMany({
           where: { deal: { branch_id: { in: branchIds } } },
         });
         await tx.deal.deleteMany({ where: { branch_id: { in: branchIds } } });
 
-        // 3. Recipes (with their ingredient rows) before the dishes they describe.
-        await tx.recipeIngredient.deleteMany({
-          where: { recipe: { branch_id: { in: branchIds } } },
+        // 3. Menu items (drops variations via cascade) + categories.
+        await tx.menuVariation.deleteMany({
+          where: { menu: { branch_id: { in: branchIds } } },
         });
-        await tx.recipe.deleteMany({ where: { branch_id: { in: branchIds } } });
-
-        // 4. Menu items / categories / legacy menu + its variations.
         await tx.menuItem.deleteMany({ where: { branch_id: { in: branchIds } } });
         await tx.category.deleteMany({ where: { branch_id: { in: branchIds } } });
-        await tx.menu.deleteMany({ where: { branchId: { in: branchIds } } });
 
-        // 5. Floor plan & hardware
+        // 4. Floor plan
         await tx.table.deleteMany({ where: { branch_id: { in: branchIds } } });
         await tx.hall.deleteMany({ where: { branch_id: { in: branchIds } } });
-        await tx.kitchen.deleteMany({ where: { branch_id: { in: branchIds } } });
 
-        // 6. Finance / operations
+        // 5. Finance / operations
         await tx.expense.deleteMany({ where: { branch_id: { in: branchIds } } });
         await tx.dayEnd.deleteMany({ where: { branch_id: { in: branchIds } } });
-        await tx.customer.deleteMany({ where: { branch_id: { in: branchIds } } });
 
-        // 7. Inventory
-        await tx.branchInventory.deleteMany({
-          where: { branch_id: { in: branchIds } },
-        });
-        await tx.stockTransaction.deleteMany({
-          where: { branch_id: { in: branchIds } },
-        });
-        await tx.inventoryItem.deleteMany({
-          where: { branch_id: { in: branchIds } },
-        });
-
-        // 8. Role assignments, then branch-pinned staff users.
-        await tx.userRoleAssignment.deleteMany({
-          where: { branch_id: { in: branchIds } },
-        });
+        // 6. Branch-pinned staff users (super admins are global and preserved).
         await tx.user.deleteMany({
           where: {
             branch_id: { in: branchIds },
@@ -466,7 +445,7 @@ export async function DELETE(
         });
       }
 
-      // 9. Restaurant-level admins (tenant users with no branch pin).
+      // 7. Restaurant-level admins (tenant users with no branch pin).
       await tx.user.deleteMany({
         where: {
           restaurant_id: restaurantId,
@@ -474,7 +453,7 @@ export async function DELETE(
         },
       });
 
-      // 10. Finally drop the restaurant. Branches cascade automatically via FK.
+      // 8. Finally drop the restaurant. Branches cascade automatically via FK.
       await tx.restaurant.delete({ where: { restaurant_id: restaurantId } });
     });
 

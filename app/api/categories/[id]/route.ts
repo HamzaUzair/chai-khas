@@ -68,24 +68,14 @@ export async function PUT(
       },
     });
 
-    // Keep Menu module category labels in sync on category rename.
-    // Menu rows are branch-scoped and store category as text.
-    if (existing.name !== updated.name) {
-      await prisma.menu.updateMany({
-        where: {
-          branchId: existing.branch_id,
-          category: existing.name,
-        },
-        data: {
-          category: updated.name,
-        },
-      });
-    }
+    // Menu items now reference `category_id` directly, so a rename is just
+    // an update on the `categories` row — no fan-out needed.
 
-    const itemCount = await prisma.menu.count({
+    const itemCount = await prisma.menuItem.count({
       where: {
-        branchId: updated.branch_id,
-        category: updated.name,
+        branch_id: updated.branch_id,
+        category_id: updated.category_id,
+        show_in_menu: true,
       },
     });
 
@@ -151,16 +141,10 @@ export async function DELETE(
 
     await assertBranchWriteAccess(auth, category.branch_id);
 
-    // Menu module stores items in `menu` table by category name (text).
-    // Delete those rows together with category to keep counts/data consistent.
+    // Menu items FK onto `categories` with ON DELETE CASCADE, so deleting the
+    // category removes the items automatically. We still wrap it in a
+    // transaction to keep it atomic with any future side-effects.
     await prisma.$transaction(async (tx) => {
-      await tx.menu.deleteMany({
-        where: {
-          branchId: category.branch_id,
-          category: category.name,
-        },
-      });
-
       await tx.category.delete({
         where: { category_id: categoryId },
       });

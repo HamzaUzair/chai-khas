@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   assertBranchWriteAccess,
@@ -41,6 +42,50 @@ function validateVariationRows(rows: Array<{ name: string; price: number }>) {
   return null;
 }
 
+type SerializableMenuItem = {
+  dish_id: number;
+  name: string;
+  description: string | null;
+  price: Prisma.Decimal | number | string;
+  base_price: Prisma.Decimal | number | string | null;
+  has_variations: boolean;
+  status: "ACTIVE" | "INACTIVE";
+  branch_id: number;
+  branch: { branch_id: number; branch_name: string };
+  category: { category_id: number; name: string };
+  variations: Array<{
+    id: number;
+    name: string;
+    price: Prisma.Decimal | number | string;
+    sortOrder: number;
+  }>;
+  created_at: Date;
+  updated_at: Date;
+};
+
+function serialize(item: SerializableMenuItem) {
+  return {
+    id: item.dish_id,
+    itemName: item.name,
+    description: item.description,
+    price: Number(item.price),
+    branchId: item.branch_id,
+    branchName: item.branch.branch_name,
+    category: item.category.name,
+    hasVariations: item.has_variations,
+    basePrice: item.base_price === null ? null : Number(item.base_price),
+    variations: item.variations.map((v) => ({
+      id: v.id,
+      name: v.name,
+      price: Number(v.price),
+      sortOrder: v.sortOrder,
+    })),
+    status: item.status === "ACTIVE" ? "active" : "inactive",
+    createdAt: item.created_at.toISOString(),
+    updatedAt: item.updated_at.toISOString(),
+  };
+}
+
 /* ── PUT /api/menu/[id] ── */
 export async function PUT(
   request: NextRequest,
@@ -58,10 +103,7 @@ export async function PUT(
     const menuId = parseInt(id, 10);
 
     if (isNaN(menuId)) {
-      return NextResponse.json(
-        { error: "Invalid menu ID" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid menu ID" }, { status: 400 });
     }
 
     const body = await request.json();
@@ -96,25 +138,11 @@ export async function PUT(
       );
     }
     if (status !== "active" && status !== "inactive") {
-      return NextResponse.json(
-        { error: "Invalid status" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
-    const existing = await prisma.menu.findUnique({
-      where: { id: menuId },
-      include: {
-        branch: {
-          select: {
-            branch_id: true,
-            branch_name: true,
-          },
-        },
-        variations: {
-          orderBy: { sortOrder: "asc" },
-        },
-      },
+    const existing = await prisma.menuItem.findUnique({
+      where: { dish_id: menuId },
     });
 
     if (!existing) {
@@ -123,7 +151,7 @@ export async function PUT(
         { status: 404 }
       );
     }
-    await assertBranchWriteAccess(auth, existing.branchId);
+    await assertBranchWriteAccess(auth, existing.branch_id);
 
     const hasVars = Boolean(hasVariations);
     const normalizedRows = normalizeVariations(variations);
@@ -151,14 +179,14 @@ export async function PUT(
       }
     }
 
-    const categoryExists = await prisma.category.findFirst({
+    const categoryRecord = await prisma.category.findFirst({
       where: {
-        branch_id: existing.branchId,
+        branch_id: existing.branch_id,
         name: category.trim(),
       },
       select: { category_id: true },
     });
-    if (!categoryExists) {
+    if (!categoryRecord) {
       return NextResponse.json(
         { error: "Selected category is not available for this branch" },
         { status: 400 }
@@ -166,22 +194,20 @@ export async function PUT(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      await tx.menuVariation.deleteMany({
-        where: { menuId },
-      });
+      await tx.menuVariation.deleteMany({ where: { menuId } });
 
-      const menu = await tx.menu.update({
-        where: { id: menuId },
+      return tx.menuItem.update({
+        where: { dish_id: menuId },
         data: {
-          itemName: itemName.trim(),
+          name: itemName.trim(),
           description: description?.trim() || null,
-          hasVariations: hasVars,
-          basePrice: hasVars ? null : basePriceNum,
+          category_id: categoryRecord.category_id,
+          has_variations: hasVars,
+          base_price: hasVars ? null : basePriceNum,
           price: hasVars
             ? Math.min(...normalizedRows.map((r) => r.price))
-            : (basePriceNum ?? 0),
+            : basePriceNum ?? 0,
           status: status === "inactive" ? "INACTIVE" : "ACTIVE",
-          category: category?.trim() ?? existing.category,
           variations: hasVars
             ? {
                 create: normalizedRows.map((row, idx) => ({
@@ -193,43 +219,14 @@ export async function PUT(
             : undefined,
         },
         include: {
-          branch: {
-            select: {
-              branch_id: true,
-              branch_name: true,
-            },
-          },
-          variations: {
-            orderBy: { sortOrder: "asc" },
-          },
+          branch: { select: { branch_id: true, branch_name: true } },
+          category: { select: { category_id: true, name: true } },
+          variations: { orderBy: { sortOrder: "asc" } },
         },
       });
-
-      return menu;
     });
 
-    const serialized = {
-      id: updated.id,
-      itemName: updated.itemName,
-      description: updated.description,
-      price: Number(updated.price),
-      branchId: updated.branchId,
-      branchName: updated.branch.branch_name,
-      category: updated.category,
-      hasVariations: updated.hasVariations,
-      basePrice: updated.basePrice === null ? null : Number(updated.basePrice),
-      variations: updated.variations.map((v) => ({
-        id: v.id,
-        name: v.name,
-        price: Number(v.price),
-        sortOrder: v.sortOrder,
-      })),
-      status: updated.status === "ACTIVE" ? "active" : "inactive",
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
-    };
-
-    return NextResponse.json(serialized);
+    return NextResponse.json(serialize(updated));
   } catch (err) {
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
@@ -259,14 +256,12 @@ export async function DELETE(
     const menuId = parseInt(id, 10);
 
     if (isNaN(menuId)) {
-      return NextResponse.json(
-        { error: "Invalid menu ID" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid menu ID" }, { status: 400 });
     }
 
-    const existing = await prisma.menu.findUnique({
-      where: { id: menuId },
+    const existing = await prisma.menuItem.findUnique({
+      where: { dish_id: menuId },
+      select: { dish_id: true, branch_id: true },
     });
     if (!existing) {
       return NextResponse.json(
@@ -274,10 +269,14 @@ export async function DELETE(
         { status: 404 }
       );
     }
-    await assertBranchWriteAccess(auth, existing.branchId);
+    await assertBranchWriteAccess(auth, existing.branch_id);
 
-    await prisma.menu.delete({
-      where: { id: menuId },
+    // Order / deal history refs `menu_items.dish_id`. To avoid deleting past
+    // records we perform a soft-delete: hide from the menu UI and mark the
+    // item inactive so future orders can't pick it.
+    await prisma.menuItem.update({
+      where: { dish_id: menuId },
+      data: { show_in_menu: false, status: "INACTIVE" },
     });
 
     return NextResponse.json({ success: true });
@@ -292,4 +291,3 @@ export async function DELETE(
     );
   }
 }
-

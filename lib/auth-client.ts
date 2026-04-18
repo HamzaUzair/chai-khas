@@ -31,8 +31,6 @@ export const RESTAURANT_ADMIN_ALLOWED_PATHS = new Set([
   "/roles",
   "/analytics",
   "/seating",
-  "/recipes",
-  "/inventory",
 ]);
 
 /**
@@ -56,8 +54,6 @@ export const BRANCH_ADMIN_ALLOWED_PATHS = new Set([
   "/roles",
   "/analytics",
   "/seating",
-  "/recipes",
-  "/inventory",
 ]);
 
 /**

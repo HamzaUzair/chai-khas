@@ -133,11 +133,8 @@ async function main() {
             price: demoItem.price,
             category_id: category.category_id,
             branch_id: branch.branch_id,
-            is_available: 1,
             terminal: 1,
-            qnty: 0,
-            is_frequent: 0,
-            discount: 0,
+            status: "ACTIVE",
           },
         });
       }

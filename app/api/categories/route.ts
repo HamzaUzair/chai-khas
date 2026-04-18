@@ -30,17 +30,17 @@ export async function GET(request: NextRequest) {
       orderBy: { created_at: "desc" },
     });
 
-    // Menu module uses dedicated `menu` table (not legacy `dishes`),
-    // so category item counts must be computed from menu rows per branch/category.
-    const menuCountRows = await prisma.menu.groupBy({
-      by: ["branchId", "category"],
+    // Item counts: menu items that are visible in the Menu module (synthetic
+    // variant rows are excluded).
+    const menuCountRows = await prisma.menuItem.groupBy({
+      by: ["category_id"],
+      where: { show_in_menu: true },
       _count: { _all: true },
     });
     const menuCountMap = new Map(
-      menuCountRows.map((row) => [`${row.branchId}::${row.category}`, row._count._all])
+      menuCountRows.map((row) => [row.category_id, row._count._all])
     );
 
-    // Serialize dates and format response (category-only, no items)
     const serialized = categories.map((cat) => ({
       category_id: cat.category_id,
       name: cat.name,
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
       branch_id: cat.branch_id,
       branch_name: cat.branch.branch_name,
       is_active: cat.kid === 0,
-      item_count: menuCountMap.get(`${cat.branch_id}::${cat.name}`) ?? 0,
+      item_count: menuCountMap.get(cat.category_id) ?? 0,
       created_at: cat.created_at.toISOString(),
       updated_at: cat.updated_at.toISOString(),
     }));
@@ -135,10 +135,11 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const itemCount = await prisma.menu.count({
+    const itemCount = await prisma.menuItem.count({
       where: {
-        branchId: category.branch_id,
-        category: category.name,
+        branch_id: category.branch_id,
+        category_id: category.category_id,
+        show_in_menu: true,
       },
     });
 
