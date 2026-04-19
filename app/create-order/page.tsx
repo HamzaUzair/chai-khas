@@ -247,6 +247,13 @@ export default function CreateOrderPage() {
       if (sessionRole === "ORDER_TAKER") clearOrderTakerCart();
       setNotes("");
       setSuccess(`Order ${data.orderNo ?? ""} placed successfully.`);
+      // Drop the table selection and refetch halls so the just-occupied
+      // table is reflected immediately in the dropdown (disabled, labeled
+      // "(Occupied)") without requiring a manual page refresh.
+      if (orderType === "Dine In") {
+        setSelectedTableId("");
+        void loadContext();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to place order");
     } finally {
@@ -309,11 +316,18 @@ export default function CreateOrderPage() {
             <option value="">
               {orderType !== "Dine In" ? "Table N/A" : selectedHallId ? "Select Table" : "Select hall first"}
             </option>
-            {tables.map((table) => (
-              <option key={table.tableId} value={table.tableId}>
-                {table.name} ({table.status})
-              </option>
-            ))}
+            {tables.map((table) => {
+              const isOccupied = table.status === "Occupied";
+              return (
+                <option
+                  key={table.tableId}
+                  value={table.tableId}
+                  disabled={isOccupied}
+                >
+                  {isOccupied ? `${table.name} (Occupied)` : table.name}
+                </option>
+              );
+            })}
           </select>
 
           <select

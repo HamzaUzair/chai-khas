@@ -40,9 +40,17 @@ interface UserCardListProps {
   loading: boolean;
   onEdit: (user: AppUser) => void;
   onDelete: (user: AppUser) => void;
+  /** Mirror of `UsersTable.hideBranch` — omit branch info (Super Admin panel). */
+  hideBranch?: boolean;
 }
 
-const UserCardList: React.FC<UserCardListProps> = ({ users, loading, onEdit, onDelete }) => {
+const UserCardList: React.FC<UserCardListProps> = ({
+  users,
+  loading,
+  onEdit,
+  onDelete,
+  hideBranch = false,
+}) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -95,7 +103,9 @@ const UserCardList: React.FC<UserCardListProps> = ({ users, loading, onEdit, onD
               <Building2 size={12} className="text-gray-400" />
               <span className="truncate">
                 {user.restaurantName || "Platform"}
-                {user.branchName && user.branchName !== "No Branch"
+                {!hideBranch &&
+                user.branchName &&
+                user.branchName !== "No Branch"
                   ? ` · ${user.branchName}`
                   : ""}
               </span>

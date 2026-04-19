@@ -5,6 +5,7 @@ import {
   getScopedRestaurantId,
   requireAuth,
 } from "@/lib/server-auth";
+import { generateUniqueBranchCode } from "@/lib/branch-code";
 
 /* ── GET /api/branches ──
  *   Super Admin    → all branches (optional ?restaurantId= filter)
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { branch_name, branch_code, address, city, status } = body;
+    const { branch_name, address, city, status } = body;
     const requestedRestaurantId = body.restaurant_id
       ? Number(body.restaurant_id)
       : null;
@@ -113,12 +114,6 @@ export async function POST(request: NextRequest) {
     if (!branch_name?.trim()) {
       return NextResponse.json(
         { error: "Branch name is required" },
-        { status: 400 }
-      );
-    }
-    if (!branch_code?.trim()) {
-      return NextResponse.json(
-        { error: "Branch code is required" },
         { status: 400 }
       );
     }
@@ -136,6 +131,7 @@ export async function POST(request: NextRequest) {
     }
 
     let restaurantId: number;
+    let restaurantSlug: string | null = null;
     if (auth.role === "RESTAURANT_ADMIN") {
       if (!auth.restaurantId) {
         return NextResponse.json({ error: "Restaurant missing" }, { status: 403 });
@@ -158,6 +154,7 @@ export async function POST(request: NextRequest) {
         );
       }
       restaurantId = restaurant.restaurant_id;
+      restaurantSlug = restaurant.slug;
     }
 
     // ── Single-branch tenant guard ─────────────────────────────────────
@@ -168,6 +165,7 @@ export async function POST(request: NextRequest) {
     const targetRestaurant = await prisma.restaurant.findUnique({
       where: { restaurant_id: restaurantId },
       select: {
+        slug: true,
         has_multiple_branches: true,
         _count: { select: { branches: true } },
       },
@@ -190,21 +188,21 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
+    restaurantSlug = restaurantSlug ?? targetRestaurant.slug;
 
-    const existing = await prisma.branch.findUnique({
-      where: { branch_code: branch_code.trim() },
+    // `branch_code` is an internal identifier now — it is no longer collected
+    // from the UI and is auto-generated per-restaurant so two different
+    // tenants can happily have their own "first branch" without a global
+    // collision (Restaurant A's B1 vs Restaurant X's B1 live under separate
+    // slug prefixes).
+    const branchCode = await generateUniqueBranchCode(restaurantSlug, {
+      restaurantId,
     });
-    if (existing) {
-      return NextResponse.json(
-        { error: `Branch code "${branch_code}" already exists` },
-        { status: 409 }
-      );
-    }
 
     const branch = await prisma.branch.create({
       data: {
         branch_name: branch_name.trim(),
-        branch_code: branch_code.trim(),
+        branch_code: branchCode,
         restaurant_id: restaurantId,
         address: address.trim(),
         city: city.trim(),

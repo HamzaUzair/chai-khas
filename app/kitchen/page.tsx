@@ -29,6 +29,21 @@ function formatElapsed(ms: number) {
   return `${String(mins).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
+/**
+ * HH:MM:SS formatter used for live prep time and final prep time. Kept
+ * separate from `formatElapsed` (MM:SS) so short-lived "Placed / Elapsed"
+ * displays stay compact while the kitchen timer always shows hours.
+ */
+function formatPrepDuration(ms: number) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const hrs = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const sec = totalSec % 60;
+  return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(
+    sec
+  ).padStart(2, "0")}`;
+}
+
 type KitchenStatus = "Pending" | "Running" | "Served";
 
 const STATUS_STYLES: Record<KitchenStatus, string> = {
@@ -336,9 +351,38 @@ function KitchenColumn({
                   </p>
                   <p className="inline-flex items-center gap-1">
                     <Clock3 size={12} />
-                    Placed {formatTime(order.createdAt)} · Elapsed{" "}
-                    {formatElapsed(nowTs - order.createdAt)}
+                    Placed {formatTime(order.createdAt)}
+                    {status === "Pending"
+                      ? ` · Waiting ${formatElapsed(nowTs - order.createdAt)}`
+                      : ""}
                   </p>
+                  {status === "Running" && order.kitchenStartedAt ? (
+                    <>
+                      <p>
+                        Started {formatTime(order.kitchenStartedAt)}
+                      </p>
+                      <p className="inline-flex items-center gap-1 font-semibold text-blue-700">
+                        <Clock3 size={12} />
+                        Prep Time{" "}
+                        {formatPrepDuration(nowTs - order.kitchenStartedAt)}
+                      </p>
+                    </>
+                  ) : null}
+                  {status === "Served" && order.kitchenStartedAt && order.kitchenServedAt ? (
+                    <>
+                      <p>
+                        Started {formatTime(order.kitchenStartedAt)} · Served{" "}
+                        {formatTime(order.kitchenServedAt)}
+                      </p>
+                      <p className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                        <Clock3 size={12} />
+                        Total Prep Time{" "}
+                        {formatPrepDuration(
+                          order.kitchenServedAt - order.kitchenStartedAt
+                        )}
+                      </p>
+                    </>
+                  ) : null}
                 </div>
 
                 <div className="mt-3 space-y-1.5">

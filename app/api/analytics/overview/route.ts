@@ -201,6 +201,7 @@ export async function GET(request: NextRequest) {
           status: true,
           phone: true,
           address: true,
+          has_multiple_branches: true,
           _count: { select: { branches: true, users: true } },
         },
       });
@@ -252,6 +253,80 @@ export async function GET(request: NextRequest) {
       const lowestBranch =
         sortedBySales.length > 1 ? sortedBySales[sortedBySales.length - 1] : null;
 
+      // Paid / cancelled breakdown + net revenue. "Paid" here matches the
+      // normalised status used by sales-list/sales-report (including the
+      // legacy "Complete" / "Bill Generated" rows from older installs).
+      const paidStatuses = ["Paid", "Complete", "Bill Generated"];
+      const [paidAgg, cancelledAgg] = await Promise.all([
+        prisma.order.aggregate({
+          where: {
+            restaurant_id: scopedRestaurantId,
+            created_at: { gte: from, lte: to },
+            order_status: { in: paidStatuses },
+          },
+          _count: { _all: true },
+          _sum: { net_total_amount: true },
+        }),
+        prisma.order.aggregate({
+          where: {
+            restaurant_id: scopedRestaurantId,
+            created_at: { gte: from, lte: to },
+            order_status: "Cancelled",
+          },
+          _count: { _all: true },
+          _sum: { net_total_amount: true },
+        }),
+      ]);
+
+      // Single-branch tenants get a top-selling-items list so the dashboard
+      // can show real menu performance without a multi-branch comparison.
+      let topSellingItems: Array<{
+        dish_id: number;
+        name: string;
+        category: string;
+        quantity: number;
+        total: number;
+      }> = [];
+      const isSingleBranchTenant =
+        restaurant.has_multiple_branches === false ||
+        restaurant._count.branches <= 1;
+      if (isSingleBranchTenant) {
+        const topItems = await prisma.orderItem.groupBy({
+          by: ["dish_id"],
+          where: {
+            order: {
+              restaurant_id: scopedRestaurantId,
+              created_at: { gte: from, lte: to },
+            },
+          },
+          _sum: { quantity: true, total_amount: true },
+          orderBy: { _sum: { total_amount: "desc" } },
+          take: 5,
+        });
+        const dishIds = topItems.map((t) => t.dish_id);
+        const dishes = dishIds.length
+          ? await prisma.menuItem.findMany({
+              where: { dish_id: { in: dishIds } },
+              select: {
+                dish_id: true,
+                name: true,
+                category: { select: { name: true } },
+              },
+            })
+          : [];
+        const dishMap = new Map(dishes.map((d) => [d.dish_id, d]));
+        topSellingItems = topItems.map((t) => {
+          const d = dishMap.get(t.dish_id);
+          return {
+            dish_id: t.dish_id,
+            name: d?.name ?? `Item #${t.dish_id}`,
+            category: d?.category?.name ?? "—",
+            quantity: toNumber(t._sum.quantity),
+            total: toNumber(t._sum.total_amount),
+          };
+        });
+      }
+
       return NextResponse.json({
         level,
         range: rangeLabel,
@@ -266,14 +341,20 @@ export async function GET(request: NextRequest) {
           address: restaurant.address,
           branchCount: restaurant._count.branches,
           userCount: restaurant._count.users,
+          hasMultipleBranches: restaurant.has_multiple_branches,
         },
         kpis: {
           ...kpis,
           totalBranches: restaurant._count.branches,
+          paidOrders: paidAgg._count._all,
+          cancelledOrders: cancelledAgg._count._all,
+          netRevenue: toNumber(paidAgg._sum.net_total_amount),
+          cancelledRevenue: toNumber(cancelledAgg._sum.net_total_amount),
         },
         branches: branchList,
         topBranch,
         lowestBranch,
+        topSellingItems,
       });
     }
 

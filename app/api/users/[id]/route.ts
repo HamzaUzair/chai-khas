@@ -6,6 +6,7 @@ import {
   assertRestaurantAccess,
   normalizeRole,
   requireAuth,
+  resolveDefaultBranchForSingleBranch,
 } from "@/lib/server-auth";
 
 type ApiUserRole =
@@ -164,6 +165,14 @@ export async function PUT(
             );
           }
           branchId = auth.branchId;
+        } else if (
+          auth.role === "RESTAURANT_ADMIN" &&
+          auth.restaurantHasMultipleBranches === false
+        ) {
+          // Single-branch tenant: the UI does not surface a branch field so
+          // the payload has no branchId. Resolve the hidden default branch
+          // on the server (auto-creating it if legacy data is missing one).
+          branchId = await resolveDefaultBranchForSingleBranch(restaurantId);
         } else if (!requestedBranchId) {
           return NextResponse.json(
             { error: "Branch is required for this role" },

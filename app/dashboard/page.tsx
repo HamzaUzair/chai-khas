@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import SalesTrendChart from "@/components/dashboard/SalesTrendChart";
 import SystemAlertsPanel from "@/components/dashboard/SystemAlertsPanel";
+import BranchOrderStatusOverview from "@/components/dashboard/BranchOrderStatusOverview";
 import {
   Building2,
   BadgePercent,
@@ -28,12 +29,99 @@ import {
   GitBranch,
   Activity,
   Clock3,
+  Calendar,
+  Wallet,
+  UserRound,
+  Tag,
+  ChefHat,
+  Receipt,
+  PieChart,
+  CalendarCheck,
+  Grid3X3,
+  ArrowUpRight,
 } from "lucide-react";
 import type { DashboardStats } from "@/types/dashboard";
 import { apiFetch, getAuthSession } from "@/lib/auth-client";
 
 function formatPKR(amount: number): string {
-  return `PKR ${amount.toLocaleString("en-PK")}`;
+  return `PKR ${Math.round(amount).toLocaleString("en-PK")}`;
+}
+
+type HeadOfficeRange = "today" | "7days" | "30days";
+
+interface HeadOfficeBranchRow {
+  branch_id: number;
+  branch_name: string;
+  branch_code: string;
+  status: string;
+  sales: number;
+  orders: number;
+  avgOrderValue: number;
+}
+
+interface HeadOfficeOverview {
+  level: "restaurant";
+  range: HeadOfficeRange;
+  restaurant: {
+    restaurant_id: number;
+    name: string;
+    slug: string;
+    status: string;
+    branchCount: number;
+    userCount: number;
+    hasMultipleBranches?: boolean;
+  };
+  kpis: {
+    totalSales: number;
+    totalOrders: number;
+    avgOrderValue: number;
+    totalBranches: number;
+    paidOrders?: number;
+    cancelledOrders?: number;
+    netRevenue?: number;
+    cancelledRevenue?: number;
+  };
+  branches: HeadOfficeBranchRow[];
+  topBranch: { branch_name: string; sales: number } | null;
+  lowestBranch: { branch_name: string; sales: number } | null;
+  topSellingItems?: Array<{
+    dish_id: number;
+    name: string;
+    category: string;
+    quantity: number;
+    total: number;
+  }>;
+}
+
+interface BranchAdminOverview {
+  level: "branch";
+  range: HeadOfficeRange;
+  branch: {
+    branch_id: number;
+    branch_name: string;
+    branch_code: string;
+    status: string;
+    restaurant: {
+      restaurant_id: number;
+      name: string;
+      slug: string;
+    } | null;
+  };
+  kpis: {
+    totalSales: number;
+    totalOrders: number;
+    avgOrderValue: number;
+    activeMenuItems: number;
+    activeDeals: number;
+    expenses: number;
+  };
+  topSellingItems: Array<{
+    dish_id: number;
+    name: string;
+    category: string;
+    quantity: number;
+    total: number;
+  }>;
 }
 
 /* ── Quick action buttons (no Create Order) ── */
@@ -264,7 +352,13 @@ export default function DashboardPage() {
                           {row.restaurantAdminAssigned ? "Assigned" : "Missing"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{row.branchAdminsAssigned}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {row.type === "Single Branch" ? (
+                          <span className="text-gray-400" title="Single-branch restaurants are managed by the Restaurant Admin">—</span>
+                        ) : (
+                          row.branchAdminsAssigned
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${row.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-700"}`}>
                           {row.status}
@@ -357,6 +451,31 @@ export default function DashboardPage() {
     );
   }
 
+  // Head Office (multi-branch Restaurant Admin) gets a dedicated overview
+  // page that merges the former "Advanced Analytics" module into the Dashboard.
+  if (
+    sessionRole === "RESTAURANT_ADMIN" &&
+    sessionRestaurantHasMultipleBranches === true
+  ) {
+    return <HeadOfficeDashboard />;
+  }
+
+  // Single-branch Restaurant Admin also gets an analytics-first dashboard
+  // (Advanced Analytics module merged in), adapted for the one-branch tenant.
+  if (
+    sessionRole === "RESTAURANT_ADMIN" &&
+    sessionRestaurantHasMultipleBranches === false
+  ) {
+    return <SingleBranchDashboard />;
+  }
+
+  // Branch Admin (inside a multi-branch restaurant) gets an operational
+  // overview focused strictly on their own branch. Advanced Analytics is
+  // merged in — no cross-branch ranking or head-office widgets leak here.
+  if (sessionRole === "BRANCH_ADMIN") {
+    return <BranchAdminDashboard />;
+  }
+
   const statCards = [
     {
       label: "Today's Sales",
@@ -421,10 +540,7 @@ export default function DashboardPage() {
       ? quickActions.filter((x) => x.href !== "/users" && x.href !== "/create-order")
       : sessionRole === "SUPER_ADMIN"
       ? quickActions.filter(
-          (x) =>
-            x.href === "/restaurants" ||
-            x.href === "/users" ||
-            x.href === "/advanced-analytics"
+          (x) => x.href === "/restaurants" || x.href === "/users"
         )
       : quickActions;
 
@@ -674,6 +790,944 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+    </DashboardLayout>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Head Office Dashboard (multi-branch Restaurant Admin)
+ *
+ * Replaces the legacy "Advanced Analytics" module and becomes the single
+ * overview page for head-office users. All figures are restaurant-scoped
+ * on the server (see /api/analytics/overview) so no cross-tenant data
+ * can leak into this view.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+function HeadOfficeDashboard() {
+  const [range, setRange] = useState<HeadOfficeRange>("7days");
+  const [data, setData] = useState<HeadOfficeOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/api/analytics/overview?range=${range}`);
+      if (!res.ok) throw new Error("Failed to load dashboard");
+      const body = (await res.json()) as HeadOfficeOverview;
+      if (body.level !== "restaurant") {
+        throw new Error("Unexpected analytics scope");
+      }
+      setData(body);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, [range]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const rangeLabel =
+    range === "today"
+      ? "Today"
+      : range === "30days"
+      ? "Last 30 days"
+      : "Last 7 days";
+
+  return (
+    <DashboardLayout title="Dashboard">
+      {/* ── Section 1: Top overview ── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={22} className="text-[#ff5a1f]" />
+              <h2 className="text-2xl font-bold text-gray-800 truncate">
+                {data?.restaurant.name ?? "Restaurant Analytics"}
+              </h2>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              Head Office overview · {rangeLabel}
+            </p>
+            {data && (
+              <p className="text-xs text-gray-400 mt-1">
+                {data.restaurant.branchCount} branch
+                {data.restaurant.branchCount === 1 ? "" : "es"} ·{" "}
+                {data.restaurant.userCount} user
+                {data.restaurant.userCount === 1 ? "" : "s"}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Calendar
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+              />
+              <select
+                className="border border-gray-200 rounded-lg pl-8 pr-3.5 py-2 text-sm text-gray-700 bg-white cursor-pointer appearance-none focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30"
+                value={range}
+                onChange={(e) => setRange(e.target.value as HeadOfficeRange)}
+              >
+                <option value="today">Today</option>
+                <option value="7days">Last 7 days</option>
+                <option value="30days">Last 30 days</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="py-16 flex justify-center">
+          <Loader2 size={28} className="animate-spin text-[#ff5a1f]" />
+        </div>
+      ) : error || !data ? (
+        <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
+          {error || "No data"}
+        </div>
+      ) : (
+        <>
+          {/* ── Section 2: Summary cards ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <HeadOfficeKpiCard
+              label="Total Sales"
+              value={formatPKR(data.kpis.totalSales)}
+              icon={<DollarSign size={20} />}
+              tone="text-green-600 bg-green-50"
+            />
+            <HeadOfficeKpiCard
+              label="Total Orders"
+              value={String(data.kpis.totalOrders)}
+              icon={<ShoppingCart size={20} />}
+              tone="text-blue-600 bg-blue-50"
+            />
+            <HeadOfficeKpiCard
+              label="Avg Order"
+              value={formatPKR(data.kpis.avgOrderValue)}
+              icon={<BarChart3 size={20} />}
+              tone="text-purple-600 bg-purple-50"
+            />
+            <HeadOfficeKpiCard
+              label="Branches"
+              value={String(data.kpis.totalBranches)}
+              icon={<Building2 size={20} />}
+              tone="text-[#ff5a1f] bg-[#ff5a1f]/10"
+            />
+          </div>
+
+          {/* ── Section 3: Highlights ── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <HeadOfficeSpotlightCard
+              title="Top Branch"
+              icon={<Trophy size={18} className="text-amber-500" />}
+              name={data.topBranch?.branch_name ?? null}
+              subtitle={data.topBranch ? formatPKR(data.topBranch.sales) : "—"}
+            />
+            <HeadOfficeSpotlightCard
+              title="Lowest Branch"
+              icon={<TrendingDown size={18} className="text-gray-500" />}
+              name={data.lowestBranch?.branch_name ?? null}
+              subtitle={
+                data.lowestBranch ? formatPKR(data.lowestBranch.sales) : "—"
+              }
+            />
+          </div>
+
+          {/* ── Section 4: Branch Performance ── */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+              <TrendingUp size={20} className="text-[#ff5a1f]" />
+              <h3 className="text-base font-semibold text-gray-800">
+                Branch Performance
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[700px]">
+                <thead>
+                  <tr className="bg-gray-50">
+                    {["Branch", "Code", "Status", "Sales", "Orders", "AOV"].map(
+                      (c) => (
+                        <th
+                          key={c}
+                          className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                        >
+                          {c}
+                        </th>
+                      )
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {data.branches.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-6 py-10 text-center text-gray-400 text-sm"
+                      >
+                        No branches yet for this restaurant.
+                      </td>
+                    </tr>
+                  ) : (
+                    data.branches.map((b) => (
+                      <tr
+                        key={b.branch_id}
+                        className="hover:bg-gray-50/60 transition-colors"
+                      >
+                        <td className="px-6 py-4 font-medium text-gray-800">
+                          {b.branch_name}
+                        </td>
+                        <td className="px-6 py-4 text-gray-600">
+                          {b.branch_code || "—"}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              b.status === "Active"
+                                ? "bg-green-50 text-green-600"
+                                : "bg-gray-100 text-gray-500"
+                            }`}
+                          >
+                            {b.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-gray-600">
+                          {formatPKR(b.sales)}
+                        </td>
+                        <td className="px-6 py-4 text-gray-600">{b.orders}</td>
+                        <td className="px-6 py-4 text-gray-600">
+                          {formatPKR(b.avgOrderValue)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </DashboardLayout>
+  );
+}
+
+function HeadOfficeKpiCard({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  tone: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${tone}`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-400 uppercase tracking-wider truncate">
+          {label}
+        </p>
+        <p className="text-xl font-bold text-gray-800 mt-0.5 truncate">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function HeadOfficeSpotlightCard({
+  title,
+  icon,
+  name,
+  subtitle,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  name: string | null;
+  subtitle: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center gap-2 mb-2">
+        {icon}
+        <h3 className="text-sm font-bold text-gray-800">{title}</h3>
+      </div>
+      {name ? (
+        <>
+          <p className="font-semibold text-gray-800">{name}</p>
+          <p className="text-lg font-bold text-[#ff5a1f] mt-0.5">{subtitle}</p>
+        </>
+      ) : (
+        <p className="text-sm text-gray-400">No data</p>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Single-Branch Restaurant Admin Dashboard
+ *
+ * Replaces the legacy "Advanced Analytics" module for single-branch
+ * tenants and becomes the single main overview page. Because there is
+ * only one branch, the multi-branch artifacts (Top Branch / Lowest
+ * Branch / Branch comparison table) are dropped in favour of
+ * single-branch-friendly highlights (paid / cancelled / net revenue)
+ * and a clean branch status summary.
+ *
+ * All figures come from /api/analytics/overview and are restaurant-
+ * scoped on the server, so no cross-tenant data can leak in.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+function SingleBranchDashboard() {
+  const [range, setRange] = useState<HeadOfficeRange>("7days");
+  const [data, setData] = useState<HeadOfficeOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/api/analytics/overview?range=${range}`);
+      if (!res.ok) throw new Error("Failed to load dashboard");
+      const body = (await res.json()) as HeadOfficeOverview;
+      if (body.level !== "restaurant") {
+        throw new Error("Unexpected analytics scope");
+      }
+      setData(body);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, [range]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const rangeLabel =
+    range === "today"
+      ? "Today"
+      : range === "30days"
+      ? "Last 30 days"
+      : "Last 7 days";
+
+  const branch = data?.branches[0] ?? null;
+  const kpis = data?.kpis;
+  const paidOrders = kpis?.paidOrders ?? 0;
+  const cancelledOrders = kpis?.cancelledOrders ?? 0;
+  const netRevenue = kpis?.netRevenue ?? 0;
+  const cancelRate =
+    kpis && kpis.totalOrders > 0
+      ? Math.round((cancelledOrders / kpis.totalOrders) * 100)
+      : 0;
+
+  return (
+    <DashboardLayout title="Dashboard">
+      {/* ── Section 1: Top overview ── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={22} className="text-[#ff5a1f]" />
+              <h2 className="text-2xl font-bold text-gray-800 truncate">
+                {data?.restaurant.name ?? "Restaurant Analytics"}
+              </h2>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              Restaurant overview · {rangeLabel}
+            </p>
+            {branch && (
+              <p className="text-xs text-gray-400 mt-1">
+                {branch.branch_name}
+                {branch.status ? ` · ${branch.status}` : ""}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Calendar
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+              />
+              <select
+                className="border border-gray-200 rounded-lg pl-8 pr-3.5 py-2 text-sm text-gray-700 bg-white cursor-pointer appearance-none focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30"
+                value={range}
+                onChange={(e) => setRange(e.target.value as HeadOfficeRange)}
+              >
+                <option value="today">Today</option>
+                <option value="7days">Last 7 days</option>
+                <option value="30days">Last 30 days</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="py-16 flex justify-center">
+          <Loader2 size={28} className="animate-spin text-[#ff5a1f]" />
+        </div>
+      ) : error || !data ? (
+        <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
+          {error || "No data"}
+        </div>
+      ) : (
+        <>
+          {/* ── Section 2: Summary cards ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <HeadOfficeKpiCard
+              label="Total Sales"
+              value={formatPKR(data.kpis.totalSales)}
+              icon={<DollarSign size={20} />}
+              tone="text-green-600 bg-green-50"
+            />
+            <HeadOfficeKpiCard
+              label="Total Orders"
+              value={String(data.kpis.totalOrders)}
+              icon={<ShoppingCart size={20} />}
+              tone="text-blue-600 bg-blue-50"
+            />
+            <HeadOfficeKpiCard
+              label="Avg Order"
+              value={formatPKR(data.kpis.avgOrderValue)}
+              icon={<BarChart3 size={20} />}
+              tone="text-purple-600 bg-purple-50"
+            />
+            <HeadOfficeKpiCard
+              label="Net Revenue"
+              value={formatPKR(netRevenue)}
+              icon={<Landmark size={20} />}
+              tone="text-emerald-600 bg-emerald-50"
+            />
+          </div>
+
+          {/* ── Section 3: Highlights (single-branch friendly) ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <HeadOfficeKpiCard
+              label="Paid Orders"
+              value={String(paidOrders)}
+              icon={<CheckCircle2 size={20} />}
+              tone="text-emerald-600 bg-emerald-50"
+            />
+            <HeadOfficeKpiCard
+              label="Cancelled Orders"
+              value={String(cancelledOrders)}
+              icon={<AlertTriangle size={20} />}
+              tone="text-rose-600 bg-rose-50"
+            />
+            <HeadOfficeKpiCard
+              label="Cancellation Rate"
+              value={`${cancelRate}%`}
+              icon={<TrendingDown size={20} />}
+              tone="text-amber-600 bg-amber-50"
+            />
+          </div>
+
+          {/* ── Section 4: Branch summary + Top selling items ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-2">
+            <div className="lg:col-span-1 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Building2 size={18} className="text-[#ff5a1f]" />
+                <h3 className="text-sm font-bold text-gray-800">
+                  Branch Summary
+                </h3>
+              </div>
+              {branch ? (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      Branch
+                    </p>
+                    <p className="text-base font-semibold text-gray-800 truncate">
+                      {branch.branch_name}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        branch.status === "Active"
+                          ? "bg-green-50 text-green-600"
+                          : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {branch.status}
+                    </span>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                      {data.restaurant.userCount} user
+                      {data.restaurant.userCount === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                        Sales
+                      </p>
+                      <p className="text-sm font-semibold text-gray-800 mt-0.5">
+                        {formatPKR(branch.sales)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                        Orders
+                      </p>
+                      <p className="text-sm font-semibold text-gray-800 mt-0.5">
+                        {branch.orders}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                        AOV
+                      </p>
+                      <p className="text-sm font-semibold text-gray-800 mt-0.5">
+                        {formatPKR(branch.avgOrderValue)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                        Cancelled
+                      </p>
+                      <p className="text-sm font-semibold text-gray-800 mt-0.5">
+                        {cancelledOrders}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No branch data.</p>
+              )}
+            </div>
+
+            <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <UtensilsCrossed size={18} className="text-[#ff5a1f]" />
+                <h3 className="text-sm font-bold text-gray-800">
+                  Top Selling Items
+                </h3>
+              </div>
+              {!data.topSellingItems || data.topSellingItems.length === 0 ? (
+                <p className="text-sm text-gray-400">No sales data yet.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {data.topSellingItems.map((item, i) => (
+                    <li
+                      key={item.dish_id}
+                      className="flex items-center justify-between py-2.5"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-6 h-6 rounded-full bg-[#ff5a1f]/10 flex items-center justify-center text-xs font-bold text-[#ff5a1f] shrink-0">
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-800 truncate">
+                            {item.name}
+                          </p>
+                          <p className="text-xs text-gray-400 truncate">
+                            {item.category}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0 ml-3">
+                        <p className="text-sm font-semibold text-gray-700">
+                          {Math.round(item.quantity)} sold
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {formatPKR(item.total)}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </DashboardLayout>
+  );
+}
+
+/**
+ * Branch Admin module navigation tiles.
+ *
+ * These are shortcut cards shown on the Branch Admin Dashboard in place
+ * of the older summary KPI strip. Each entry maps 1:1 to a Branch Admin
+ * sidebar module so the dashboard acts as a "control center" for the
+ * branch. Keep this list in sync with `branchAdminMenu` in
+ * `components/layout/Sidebar.tsx`.
+ */
+const BRANCH_MODULE_CARDS: Array<{
+  label: string;
+  subtitle: string;
+  href: string;
+  icon: React.ReactNode;
+  tone: string;
+}> = [
+  {
+    label: "Categories",
+    subtitle: "Manage categories",
+    href: "/categories",
+    icon: <Tag size={20} />,
+    tone: "text-pink-600 bg-pink-50",
+  },
+  {
+    label: "Menu",
+    subtitle: "View menu items",
+    href: "/menu",
+    icon: <UtensilsCrossed size={20} />,
+    tone: "text-green-600 bg-green-50",
+  },
+  {
+    label: "Deals",
+    subtitle: "Promotions & combos",
+    href: "/deals",
+    icon: <BadgePercent size={20} />,
+    tone: "text-purple-600 bg-purple-50",
+  },
+  {
+    label: "Kitchen",
+    subtitle: "Live kitchen view",
+    href: "/kitchen",
+    icon: <ChefHat size={20} />,
+    tone: "text-orange-600 bg-orange-50",
+  },
+  {
+    label: "Orders",
+    subtitle: "Track orders",
+    href: "/orders",
+    icon: <ClipboardList size={20} />,
+    tone: "text-blue-600 bg-blue-50",
+  },
+  {
+    label: "Sales List",
+    subtitle: "Transaction history",
+    href: "/sales-list",
+    icon: <Receipt size={20} />,
+    tone: "text-indigo-600 bg-indigo-50",
+  },
+  {
+    label: "Sales Report",
+    subtitle: "Sales analytics",
+    href: "/sales-report",
+    icon: <BarChart3 size={20} />,
+    tone: "text-cyan-600 bg-cyan-50",
+  },
+  {
+    label: "Menu Sales",
+    subtitle: "Item-wise sales",
+    href: "/menu-sales",
+    icon: <PieChart size={20} />,
+    tone: "text-teal-600 bg-teal-50",
+  },
+  {
+    label: "Expenses",
+    subtitle: "Track expenses",
+    href: "/expenses",
+    icon: <Wallet size={20} />,
+    tone: "text-rose-600 bg-rose-50",
+  },
+  {
+    label: "Day End",
+    subtitle: "Close the day",
+    href: "/dayend",
+    icon: <CalendarCheck size={20} />,
+    tone: "text-emerald-600 bg-emerald-50",
+  },
+  {
+    label: "Halls",
+    subtitle: "Halls & tables",
+    href: "/halls",
+    icon: <Grid3X3 size={20} />,
+    tone: "text-amber-600 bg-amber-50",
+  },
+  {
+    label: "Roles",
+    subtitle: "Users & access",
+    href: "/roles",
+    icon: <ShieldCheck size={20} />,
+    tone: "text-slate-600 bg-slate-100",
+  },
+];
+
+/* ══════════════════════════════════════════════════════════════════════
+ * Branch Admin Dashboard (multi-branch restaurant)
+ *
+ * Replaces the legacy "Advanced Analytics" module for Branch Admins and
+ * becomes the single main overview page for their branch. All figures are
+ * branch-scoped on the server (see /api/analytics/overview — BRANCH_ADMIN
+ * auth path) so no cross-branch or cross-tenant data can leak in. There
+ * are intentionally no Top Branch / Lowest Branch / multi-branch
+ * comparison widgets — this is an operational view of one branch only.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+function BranchAdminDashboard() {
+  const [range, setRange] = useState<HeadOfficeRange>("7days");
+  const [data, setData] = useState<BranchAdminOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      // The API auto-scopes BRANCH_ADMIN to their assigned branch server-side,
+      // so we intentionally do NOT pass branchId from the client.
+      const res = await apiFetch(`/api/analytics/overview?range=${range}`);
+      if (!res.ok) throw new Error("Failed to load dashboard");
+      const body = (await res.json()) as BranchAdminOverview;
+      if (body.level !== "branch") {
+        throw new Error("Unexpected analytics scope");
+      }
+      setData(body);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, [range]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const rangeLabel =
+    range === "today"
+      ? "Today"
+      : range === "30days"
+      ? "Last 30 days"
+      : "Last 7 days";
+
+  const restaurantName = data?.branch.restaurant?.name ?? "";
+  const branchName = data?.branch.branch_name ?? "";
+
+  return (
+    <DashboardLayout title="Dashboard">
+      {/* ── Section 1: Top overview ── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={22} className="text-[#ff5a1f]" />
+              <h2 className="text-2xl font-bold text-gray-800 truncate">
+                {branchName || "Branch Analytics"}
+              </h2>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              {restaurantName
+                ? `${restaurantName} · Branch overview · ${rangeLabel}`
+                : `Branch overview · ${rangeLabel}`}
+            </p>
+            {data && (
+              <p className="text-xs text-gray-400 mt-1">
+                {data.branch.branch_code
+                  ? `Code ${data.branch.branch_code} · `
+                  : ""}
+                {data.branch.status || "—"}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Calendar
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+              />
+              <select
+                className="border border-gray-200 rounded-lg pl-8 pr-3.5 py-2 text-sm text-gray-700 bg-white cursor-pointer appearance-none focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30"
+                value={range}
+                onChange={(e) => setRange(e.target.value as HeadOfficeRange)}
+              >
+                <option value="today">Today</option>
+                <option value="7days">Last 7 days</option>
+                <option value="30days">Last 30 days</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="py-16 flex justify-center">
+          <Loader2 size={28} className="animate-spin text-[#ff5a1f]" />
+        </div>
+      ) : error || !data ? (
+        <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
+          {error || "No data"}
+        </div>
+      ) : (
+        <>
+          {/* ── Section 2: Module navigation cards ──
+           * Quick-access shortcuts to every branch-scoped module in the
+           * Branch Admin sidebar. Each card is a full-size clickable Link
+           * so the entire tile routes cleanly, with a hover lift + icon
+           * scale for a control-center feel. */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
+            {BRANCH_MODULE_CARDS.map((m) => (
+              <Link
+                key={m.href}
+                href={m.href}
+                className="group relative bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col gap-2 hover:shadow-md hover:-translate-y-0.5 hover:border-[#ff5a1f]/40 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/40 focus:ring-offset-2"
+                aria-label={`Open ${m.label}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-lg shrink-0 transition-transform duration-200 group-hover:scale-110 ${m.tone}`}
+                  >
+                    {m.icon}
+                  </span>
+                  <ArrowUpRight
+                    size={14}
+                    className="text-gray-300 group-hover:text-[#ff5a1f] transition-colors"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 group-hover:text-[#ff5a1f] transition-colors truncate">
+                    {m.label}
+                  </p>
+                  <p className="text-[11px] text-gray-400 truncate">
+                    {m.subtitle}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {/* ── Section 2b: Order Status Overview ──
+           * Live per-status card grid (Pending / Running / Served / Paid /
+           * Cancelled / Credit / Total). Polls silently every 25s, respects
+           * the dashboard's date range, and every card deep-links into
+           * /orders?status=<status> with the branch scoped server-side. */}
+          <BranchOrderStatusOverview range={range} />
+
+          {/* ── Section 3: Branch summary + Top selling items ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-2">
+            <div className="lg:col-span-1 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Building2 size={18} className="text-[#ff5a1f]" />
+                <h3 className="text-sm font-bold text-gray-800">
+                  Branch Summary
+                </h3>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    Branch
+                  </p>
+                  <p className="text-base font-semibold text-gray-800 truncate">
+                    {data.branch.branch_name}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                      data.branch.status === "Active"
+                        ? "bg-green-50 text-green-600"
+                        : "bg-gray-100 text-gray-500"
+                    }`}
+                  >
+                    {data.branch.status}
+                  </span>
+                  {data.branch.branch_code && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                      Code {data.branch.branch_code}
+                    </span>
+                  )}
+                  {restaurantName && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                      <UserRound size={11} />
+                      {restaurantName}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      Sales
+                    </p>
+                    <p className="text-sm font-semibold text-gray-800 mt-0.5">
+                      {formatPKR(data.kpis.totalSales)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      Orders
+                    </p>
+                    <p className="text-sm font-semibold text-gray-800 mt-0.5">
+                      {data.kpis.totalOrders}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      AOV
+                    </p>
+                    <p className="text-sm font-semibold text-gray-800 mt-0.5">
+                      {formatPKR(data.kpis.avgOrderValue)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      Expenses
+                    </p>
+                    <p className="text-sm font-semibold text-gray-800 mt-0.5">
+                      {formatPKR(data.kpis.expenses)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <UtensilsCrossed size={18} className="text-[#ff5a1f]" />
+                <h3 className="text-sm font-bold text-gray-800">
+                  Top Selling Items
+                </h3>
+              </div>
+              {!data.topSellingItems || data.topSellingItems.length === 0 ? (
+                <p className="text-sm text-gray-400">No sales data yet.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {data.topSellingItems.map((item, i) => (
+                    <li
+                      key={item.dish_id}
+                      className="flex items-center justify-between py-2.5"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-6 h-6 rounded-full bg-[#ff5a1f]/10 flex items-center justify-center text-xs font-bold text-[#ff5a1f] shrink-0">
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-800 truncate">
+                            {item.name}
+                          </p>
+                          <p className="text-xs text-gray-400 truncate">
+                            {item.category}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0 ml-3">
+                        <p className="text-sm font-semibold text-gray-700">
+                          {Math.round(item.quantity)} sold
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {formatPKR(item.total)}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </DashboardLayout>
   );
 }

@@ -78,7 +78,9 @@ const branchAdminMenu: SidebarItem[] = [
   { label: "Day End", icon: <CalendarCheck size={20} />, href: "/dayend" },
   { label: "Halls", icon: <Grid3X3 size={20} />, href: "/halls" },
   { label: "Roles", icon: <ShieldCheck size={20} />, href: "/roles" },
-  { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
+  // "Advanced Analytics" has been merged into the Branch Admin Dashboard.
+  // The /analytics route is also removed from BRANCH_ADMIN_ALLOWED_PATHS so
+  // direct URL hits safely redirect to /dashboard.
 ];
 
 /* ══════════════ Order Taker limited menu ══════════════ */
@@ -111,13 +113,31 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   // Single-branch restaurants don't manage branches from the UI — the tenant
   // operates on its single auto-provisioned default branch behind the scenes.
-  const restaurantAdminMenuForSession =
-    role === "RESTAURANT_ADMIN" && session?.restaurantHasMultipleBranches === false
-      ? restaurantAdminMenu.filter(
-          (item) =>
-            item.href !== "/branches" && item.href !== "/create-order"
-        )
-      : restaurantAdminMenu;
+  // Multi-branch (Head Office) restaurants hide the legacy "Advanced Analytics"
+  // module because its content has been merged into the Dashboard.
+  const restaurantAdminMenuForSession = (() => {
+    if (role !== "RESTAURANT_ADMIN") return restaurantAdminMenu;
+    if (session?.restaurantHasMultipleBranches === false) {
+      // Single-branch tenants don't expose Branches management, don't need
+      // the extra "New Order / POS" shortcut (they operate from /orders and
+      // role-assigned POS users), and the Advanced Analytics module is
+      // merged into the Dashboard.
+      return restaurantAdminMenu.filter(
+        (item) =>
+          item.href !== "/branches" &&
+          item.href !== "/create-order" &&
+          item.href !== "/analytics"
+      );
+    }
+    if (session?.restaurantHasMultipleBranches === true) {
+      // Head Office users don't take orders themselves and the Advanced
+      // Analytics module has been merged into the Dashboard.
+      return restaurantAdminMenu.filter(
+        (item) => item.href !== "/analytics" && item.href !== "/create-order"
+      );
+    }
+    return restaurantAdminMenu;
+  })();
 
   const menuItems =
     role === "SUPER_ADMIN"

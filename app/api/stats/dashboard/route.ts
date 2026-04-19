@@ -221,17 +221,44 @@ export async function GET(request: NextRequest) {
         };
       });
 
-      const branchAssignmentOverview = branches.map((branch) => ({
-        branchId: branch.branch_id,
-        restaurantName: branch.restaurant.name,
-        branchName: branch.branch_name,
-        branchCode: branch.branch_code,
-        branchAdminAssigned: branch.users.length > 0,
-        branchAdminName: branch.users[0]?.fullname ?? null,
-        status: (branch.status === "Active" ? "Active" : "Inactive") as
-          | "Active"
-          | "Inactive",
-      }));
+      // For single-branch restaurants we never create a separate Branch Admin
+      // — the Restaurant Admin *is* the branch's admin. To avoid showing a
+      // misleading "Missing" badge in the Branch Assignment Overview, fall
+      // back to the tenant's Restaurant Admin full name when the branch has
+      // no BA and its restaurant is single-branch.
+      const restaurantAdminByRestaurantId = new Map<number, string>();
+      restaurants.forEach((r) => {
+        const ra = r.users.find(
+          (u) => u.role === "RESTAURANT_ADMIN" && u.status === "Active"
+        );
+        if (ra?.fullname) {
+          restaurantAdminByRestaurantId.set(r.restaurant_id, ra.fullname);
+        }
+      });
+
+      const branchAssignmentOverview = branches.map((branch) => {
+        const branchAdmin = branch.users[0];
+        const isSingleBranch = branch.restaurant.has_multiple_branches === false;
+        const fallbackRestaurantAdminName = isSingleBranch
+          ? restaurantAdminByRestaurantId.get(branch.restaurant_id) ?? null
+          : null;
+
+        const adminName =
+          branchAdmin?.fullname ?? fallbackRestaurantAdminName ?? null;
+        const adminAssigned = adminName != null;
+
+        return {
+          branchId: branch.branch_id,
+          restaurantName: branch.restaurant.name,
+          branchName: branch.branch_name,
+          branchCode: branch.branch_code,
+          branchAdminAssigned: adminAssigned,
+          branchAdminName: adminName,
+          status: (branch.status === "Active" ? "Active" : "Inactive") as
+            | "Active"
+            | "Inactive",
+        };
+      });
 
       const recentActivity = [
         ...recentRestaurants.map((r) => ({

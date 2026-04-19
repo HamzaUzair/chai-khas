@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { normalizeRole } from "@/lib/server-auth";
+import {
+  normalizeRole,
+  resolveDefaultBranchForSingleBranch,
+} from "@/lib/server-auth";
 
 const DEFAULT_SUPER_ADMIN_USERNAME = "sdmain@gmail.com";
 const DEFAULT_SUPER_ADMIN_PASSWORD = "Asdf0010";
@@ -102,6 +105,39 @@ export async function POST(request: NextRequest) {
       data: { token },
     });
 
+    // ── Resolve effective branch for the session payload ─────────────────
+    // Single-branch Restaurant Admins live in a UI where branches are not
+    // user-visible. We still auto-scope all branch-owned modules (categories,
+    // menu, deals, orders, …) to the tenant's one real/internal branch so the
+    // UI doesn't show awkward "All Branches" dropdowns. The user's stored
+    // `branch_id` in the DB stays null — this is purely a session-level hint
+    // that downstream screens already honor via `isBranchFilterLocked` and
+    // `getEffectiveBranchId`.
+    let effectiveBranchId: number | null = user.branch_id ?? null;
+    let effectiveBranchName: string | null = user.branch?.branch_name ?? null;
+    if (
+      role === "RESTAURANT_ADMIN" &&
+      user.restaurant?.has_multiple_branches === false &&
+      user.restaurant_id &&
+      effectiveBranchId === null
+    ) {
+      try {
+        const defaultBranchId = await resolveDefaultBranchForSingleBranch(
+          user.restaurant_id
+        );
+        const defaultBranch = await prisma.branch.findUnique({
+          where: { branch_id: defaultBranchId },
+          select: { branch_id: true, branch_name: true },
+        });
+        if (defaultBranch) {
+          effectiveBranchId = defaultBranch.branch_id;
+          effectiveBranchName = defaultBranch.branch_name;
+        }
+      } catch {
+        // fall through: keep branch null, UI will still work via fallback
+      }
+    }
+
     return NextResponse.json({
       userId: user.id,
       username: user.username,
@@ -111,8 +147,8 @@ export async function POST(request: NextRequest) {
       restaurantName: user.restaurant?.name ?? null,
       restaurantHasMultipleBranches:
         user.restaurant?.has_multiple_branches ?? null,
-      branchId: user.branch_id ?? null,
-      branchName: user.branch?.branch_name ?? null,
+      branchId: effectiveBranchId,
+      branchName: effectiveBranchName,
       terminal: user.terminal,
       token,
     });

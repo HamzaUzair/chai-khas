@@ -33,6 +33,13 @@ export interface Order {
   status: OrderStatus;
   paymentMode: PaymentMode;
   createdAt: number;
+  /**
+   * Real kitchen timing stamped by the backend when an order moves to
+   * "Running" / "Served". Null while the order is still Pending (no chef
+   * has picked it up yet). All values are epoch milliseconds.
+   */
+  kitchenStartedAt?: number | null;
+  kitchenServedAt?: number | null;
   items: OrderItem[];
   discount: number;
   discountType?: "Fixed Amount" | "Percentage" | null;

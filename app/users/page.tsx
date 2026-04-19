@@ -420,6 +420,7 @@ export default function UsersPage() {
               loading={branchesLoading}
               onEdit={openEdit}
               onDelete={handleDelete}
+              hideBranch={isSuperAdmin}
             />
           </div>
           <div className="md:hidden">
@@ -428,6 +429,7 @@ export default function UsersPage() {
               loading={branchesLoading}
               onEdit={openEdit}
               onDelete={handleDelete}
+              hideBranch={isSuperAdmin}
             />
           </div>
         </>

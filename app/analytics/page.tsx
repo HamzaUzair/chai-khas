@@ -127,6 +127,13 @@ export default function AnalyticsPage() {
       router.replace("/login");
       return;
     }
+    // Both Head Office (multi-branch) and single-branch Restaurant Admins,
+    // as well as Branch Admins, have the Advanced Analytics module merged
+    // into their Dashboard — bounce any direct hits back there.
+    if (session.role === "RESTAURANT_ADMIN" || session.role === "BRANCH_ADMIN") {
+      router.replace("/dashboard");
+      return;
+    }
     setRole(session.role);
     setAuthorized(true);
   }, [router]);

@@ -13,6 +13,12 @@ interface MenuToolbarProps {
   branchesLoading: boolean;
   filterBranchId: number | "all";
   onBranchChange: (v: number | "all") => void;
+  /**
+   * When true the branch select is hidden entirely (single-branch tenants and
+   * branch-pinned roles). Prefer this over just disabling because the "All
+   * Branches" option is meaningless for these callers.
+   */
+  branchLocked?: boolean;
   /* status */
   statusFilter: StatusFilter;
   onStatusChange: (v: StatusFilter) => void;
@@ -36,6 +42,7 @@ const MenuToolbar: React.FC<MenuToolbarProps> = ({
   branchesLoading,
   filterBranchId,
   onBranchChange,
+  branchLocked = false,
   statusFilter,
   onStatusChange,
   search,
@@ -49,29 +56,32 @@ const MenuToolbar: React.FC<MenuToolbarProps> = ({
   <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6 space-y-4">
     {/* ── Row 1: filters ── */}
     <div className="flex flex-col lg:flex-row lg:items-end gap-4">
-      {/* Branch filter */}
-      <div className="flex-1 min-w-[180px] max-w-xs">
-        <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1.5">
-          <Building2 size={13} />
-          Branch
-        </label>
-        <select
-          className="w-full border border-gray-200 rounded-lg px-3.5 py-2 text-sm text-gray-700 bg-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
-          value={filterBranchId}
-          onChange={(e) => {
-            const v = e.target.value;
-            onBranchChange(v === "all" ? "all" : Number(v));
-          }}
-          disabled={branchesLoading || (branches.length === 1 && filterBranchId !== "all")}
-        >
-          {!(branches.length === 1 && filterBranchId !== "all") && <option value="all">All Branches</option>}
-          {branches.map((b) => (
-            <option key={b.branch_id} value={b.branch_id}>
-              {b.branch_name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Branch filter (hidden for branch-locked sessions — single-branch
+          tenants and branch-pinned roles don't need it). */}
+      {!branchLocked && (
+        <div className="flex-1 min-w-[180px] max-w-xs">
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1.5">
+            <Building2 size={13} />
+            Branch
+          </label>
+          <select
+            className="w-full border border-gray-200 rounded-lg px-3.5 py-2 text-sm text-gray-700 bg-white appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
+            value={filterBranchId}
+            onChange={(e) => {
+              const v = e.target.value;
+              onBranchChange(v === "all" ? "all" : Number(v));
+            }}
+            disabled={branchesLoading || (branches.length === 1 && filterBranchId !== "all")}
+          >
+            {!(branches.length === 1 && filterBranchId !== "all") && <option value="all">All Branches</option>}
+            {branches.map((b) => (
+              <option key={b.branch_id} value={b.branch_id}>
+                {b.branch_name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Category filter */}
       <div className="flex-1 min-w-[180px] max-w-xs">

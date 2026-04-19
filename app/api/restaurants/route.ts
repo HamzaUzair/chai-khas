@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AuthError, requireAuth, requireSuperAdmin } from "@/lib/server-auth";
+import { generateUniqueBranchCode } from "@/lib/branch-code";
 
 function slugify(input: string) {
   return String(input)
@@ -28,39 +29,6 @@ type CreateRestaurantBody = {
   admin_password?: string;
   admin_confirm_password?: string;
 };
-
-/** Pick a deterministic branch code for the auto-created default branch. */
-function defaultBranchCodeFor(slug: string) {
-  const base = slug.toUpperCase().slice(0, 16) || "MAIN";
-  return `${base}-MAIN`;
-}
-
-/**
- * Find a free branch_code. The default-branch code is derived from the slug so
- * clashes are rare, but we still defend against it — if someone has already
- * used that exact code we suffix a numeric counter.
- */
-async function resolveUniqueBranchCode(
-  client: {
-    branch: {
-      findUnique: (args: { where: { branch_code: string } }) => Promise<unknown>;
-    };
-  },
-  desired: string
-): Promise<string> {
-  let candidate = desired;
-  let i = 2;
-  // Sanity cap to avoid a pathological loop.
-  while (i < 1000) {
-    const clash = await client.branch.findUnique({
-      where: { branch_code: candidate },
-    });
-    if (!clash) return candidate;
-    candidate = `${desired}-${i}`;
-    i += 1;
-  }
-  return `${desired}-${Date.now()}`;
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -213,8 +181,9 @@ export async function POST(request: NextRequest) {
       // branch-scoped modules (menu / orders / halls / expenses) keep working
       // without ever exposing branch management to the Restaurant Admin.
       if (!hasMultipleBranches) {
-        const desiredCode = defaultBranchCodeFor(slug);
-        const branchCode = await resolveUniqueBranchCode(tx, desiredCode);
+        const branchCode = await generateUniqueBranchCode(slug, {
+          suffix: "MAIN",
+        });
         await tx.branch.create({
           data: {
             branch_name: "Main Branch",

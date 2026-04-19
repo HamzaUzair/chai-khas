@@ -36,23 +36,6 @@ const BranchForm: React.FC<BranchFormProps> = ({ data, onChange, errors }) => {
         )}
       </div>
 
-      {/* Branch Code */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Branch Code <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          className={`${inputBase} ${errors.branch_code ? "border-red-400 ring-2 ring-red-100" : ""}`}
-          placeholder="Enter branch code"
-          value={data.branch_code}
-          onChange={(e) => update("branch_code", e.target.value)}
-        />
-        {errors.branch_code && (
-          <p className="text-xs text-red-500 mt-1">{errors.branch_code}</p>
-        )}
-      </div>
-
       {/* Complete Address */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">

@@ -73,17 +73,11 @@ export async function PUT(
     await assertBranchWithinRestaurant(auth, branchId);
 
     const body = await request.json();
-    const { branch_name, branch_code, address, city, status } = body;
+    const { branch_name, address, city, status } = body;
 
     if (!branch_name?.trim()) {
       return NextResponse.json(
         { error: "Branch name is required" },
-        { status: 400 }
-      );
-    }
-    if (!branch_code?.trim()) {
-      return NextResponse.json(
-        { error: "Branch code is required" },
         { status: 400 }
       );
     }
@@ -100,15 +94,9 @@ export async function PUT(
       );
     }
 
-    const duplicate = await prisma.branch.findUnique({
-      where: { branch_code: branch_code.trim() },
-    });
-    if (duplicate && duplicate.branch_id !== branchId) {
-      return NextResponse.json(
-        { error: `Branch code "${branch_code}" already exists` },
-        { status: 409 }
-      );
-    }
+    // `branch_code` is an internal, auto-generated identifier and must not
+    // be editable from the branch management UI — whatever the payload
+    // carries is ignored, and the existing code stays untouched.
 
     // Super Admin can reassign the branch to a different restaurant via restaurant_id
     let restaurantIdUpdate: { restaurant_id: number } | undefined;
@@ -132,7 +120,6 @@ export async function PUT(
       where: { branch_id: branchId },
       data: {
         branch_name: branch_name.trim(),
-        branch_code: branch_code.trim(),
         address: address.trim(),
         city: city.trim(),
         status: status === "Inactive" ? "Inactive" : "Active",

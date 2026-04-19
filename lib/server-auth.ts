@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { generateUniqueBranchCode } from "@/lib/branch-code";
 
 export type ServerAuthRole =
   | "SUPER_ADMIN"
@@ -315,6 +316,66 @@ export async function buildBranchScopeFilter(
     return { [branchKey]: requestedBranchId };
   }
   return {};
+}
+
+/**
+ * Resolve the hidden "default" branch for a single-branch tenant so that
+ * branch-scoped staff roles (Order Taker, Cashier, Accountant, Live Kitchen)
+ * can be created without forcing the Restaurant Admin to pick a branch in a
+ * UI that does not expose branch management at all.
+ *
+ * Contract:
+ *   - Restaurant must exist and be `has_multiple_branches = false`.
+ *   - Returns the active branch if present; otherwise the first branch.
+ *   - Legacy safety net: if a single-branch restaurant somehow has zero
+ *     branches (e.g. rows created before the auto-provisioning landed),
+ *     a hidden "Main Branch" row is auto-created on the fly so downstream
+ *     inserts always succeed.
+ *
+ * Throws `AuthError` for multi-branch tenants — callers must require an
+ * explicit branchId in that case.
+ */
+export async function resolveDefaultBranchForSingleBranch(
+  restaurantId: number
+): Promise<number> {
+  const restaurant = await prisma.restaurant.findUnique({
+    where: { restaurant_id: restaurantId },
+    select: {
+      restaurant_id: true,
+      slug: true,
+      address: true,
+      has_multiple_branches: true,
+      branches: {
+        orderBy: { branch_id: "asc" },
+        select: { branch_id: true, status: true },
+      },
+    },
+  });
+  if (!restaurant) throw new AuthError("Restaurant not found", 404);
+  if (restaurant.has_multiple_branches) {
+    throw new AuthError("Branch is required for this role", 400);
+  }
+
+  const active = restaurant.branches.find((b) => b.status === "Active");
+  if (active) return active.branch_id;
+  if (restaurant.branches.length > 0) return restaurant.branches[0].branch_id;
+
+  // Legacy data repair: manufacture the hidden Main Branch so single-branch
+  // restaurants created before auto-provisioning still work end-to-end.
+  const branchCode = await generateUniqueBranchCode(restaurant.slug, {
+    suffix: "MAIN",
+  });
+  const created = await prisma.branch.create({
+    data: {
+      branch_name: "Main Branch",
+      branch_code: branchCode,
+      restaurant_id: restaurant.restaurant_id,
+      address: restaurant.address ?? "",
+      city: "",
+      status: "Active",
+    },
+  });
+  return created.branch_id;
 }
 
 export async function assertBranchWithinRestaurant(

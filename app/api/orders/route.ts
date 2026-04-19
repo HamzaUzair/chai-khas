@@ -8,6 +8,22 @@ import {
 } from "@/lib/server-auth";
 import type { Prisma } from "@prisma/client";
 
+/**
+ * Order statuses that keep a dine-in table "Occupied". As soon as the order
+ * leaves this set (e.g. the cashier marks it Paid or an admin cancels it),
+ * the table is released back to "Available". Keep this in sync with
+ * `ACTIVE_ORDER_STATUSES` in `app/api/orders/[id]/route.ts`.
+ */
+const ACTIVE_ORDER_STATUSES = [
+  "Pending",
+  "Running",
+  "Served",
+  "Credit",
+] as const;
+
+const TABLE_STATUS_OCCUPIED = "Occupied";
+const TABLE_STATUS_AVAILABLE = "Available";
+
 type CreateOrderItem = {
   menuId?: number | string;
   menuName?: string;
@@ -215,6 +231,8 @@ function serializeOrder(order: {
   service_charge: unknown;
   net_total_amount: unknown;
   created_at: Date;
+  kitchen_started_at: Date | null;
+  kitchen_served_at: Date | null;
   branch_id: number;
   branch: { branch_name: string };
   hall: { name: string } | null;
@@ -273,6 +291,12 @@ function serializeOrder(order: {
         ? order.payment_mode
         : "Cash",
     createdAt: new Date(order.created_at).getTime(),
+    kitchenStartedAt: order.kitchen_started_at
+      ? new Date(order.kitchen_started_at).getTime()
+      : null,
+    kitchenServedAt: order.kitchen_served_at
+      ? new Date(order.kitchen_served_at).getTime()
+      : null,
     items: itemRows,
     discount: Number(order.discount_amount),
     discountType: meta?.discountType ?? null,
@@ -414,10 +438,32 @@ export async function POST(request: NextRequest) {
       });
       const table = await prisma.table.findUnique({
         where: { table_id: tableId },
-        select: { table_id: true, branch_id: true, hall_id: true },
+        select: { table_id: true, branch_id: true, hall_id: true, status: true },
       });
       if (!hall || !table || hall.branch_id !== branchId || table.branch_id !== branchId || table.hall_id !== hallId) {
         return NextResponse.json({ error: "Invalid hall/table selection" }, { status: 400 });
+      }
+
+      // Hard guard against double-booking the same dine-in table. We check by
+      // the authoritative "active order" status set (not just the stored
+      // table flag) so a stale "Available" row from older data or a missed
+      // status flip can't silently let a second order through.
+      const activeOrder = await prisma.order.findFirst({
+        where: {
+          branch_id: branchId,
+          table_id: tableId,
+          order_status: { in: [...ACTIVE_ORDER_STATUSES] },
+        },
+        select: { order_id: true },
+      });
+      if (activeOrder) {
+        return NextResponse.json(
+          {
+            error:
+              "This table already has an active order. Please wait until the cashier marks it Paid.",
+          },
+          { status: 409 }
+        );
       }
     }
 
@@ -580,6 +626,15 @@ export async function POST(request: NextRequest) {
             },
           });
         }
+      }
+
+      // Lock the table inside the same transaction so either both the order
+      // row and the occupancy flag land, or neither does.
+      if (orderType === "Dine In" && tableId) {
+        await tx.table.update({
+          where: { table_id: tableId },
+          data: { status: TABLE_STATUS_OCCUPIED },
+        });
       }
 
       const withItems = await tx.order.findUniqueOrThrow({

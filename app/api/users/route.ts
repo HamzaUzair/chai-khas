@@ -5,6 +5,7 @@ import {
   assertBranchWithinRestaurant,
   normalizeRole,
   requireAuth,
+  resolveDefaultBranchForSingleBranch,
 } from "@/lib/server-auth";
 
 type ApiUserRole =
@@ -228,6 +229,14 @@ export async function POST(request: NextRequest) {
             );
           }
           branchId = auth.branchId;
+        } else if (
+          auth.role === "RESTAURANT_ADMIN" &&
+          auth.restaurantHasMultipleBranches === false
+        ) {
+          // Single-branch tenant: branch management is hidden in the UI so
+          // the client never sends a branchId. Resolve the hidden default
+          // branch on the server and ignore whatever the payload carried.
+          branchId = await resolveDefaultBranchForSingleBranch(restaurantId);
         } else if (!requestedBranchId) {
           return NextResponse.json(
             { error: "Branch is required for this role" },

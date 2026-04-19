@@ -4,6 +4,13 @@ import { prisma } from "@/lib/prisma";
 import { AuthError, assertBranchAccess, requireAuth } from "@/lib/server-auth";
 
 const ALLOWED_KITCHEN_STATUSES = new Set(["Running", "Served"]);
+/**
+ * Statuses that still keep a dine-in table "Occupied". Must match the
+ * companion list in `app/api/orders/route.ts`. Once an order's status leaves
+ * this set, we can safely release the table.
+ */
+const ACTIVE_ORDER_STATUSES = ["Pending", "Running", "Served", "Credit"] as const;
+const TABLE_STATUS_AVAILABLE = "Available";
 const ALLOWED_CASHIER_PAYMENT_METHODS = new Set([
   "Cash",
   "Online",
@@ -53,12 +60,16 @@ export async function PATCH(
       select: {
         order_id: true,
         branch_id: true,
+        table_id: true,
+        order_type: true,
         order_status: true,
         g_total_amount: true,
         net_total_amount: true,
         discount_amount: true,
         service_charge: true,
         comments: true,
+        kitchen_started_at: true,
+        kitchen_served_at: true,
       },
     });
     if (!existing) {
@@ -218,10 +229,33 @@ export async function PATCH(
           })}`
         : baseNotes || null;
 
+    // Stamp real kitchen timing on the status flip so the timer is
+    // authoritative in the DB (survives refresh, powers reports). We only
+    // write kitchen_started_at the first time to protect against accidental
+    // re-flips that would reset the elapsed clock.
+    const kitchenTimestampData: {
+      kitchen_started_at?: Date;
+      kitchen_served_at?: Date;
+    } = {};
+    const nowDate = new Date();
+    if (isKitchenTransition && nextStatus === "Running" && !existing.kitchen_started_at) {
+      kitchenTimestampData.kitchen_started_at = nowDate;
+    }
+    if (isKitchenTransition && nextStatus === "Served") {
+      kitchenTimestampData.kitchen_served_at = nowDate;
+      // Defensive: if somehow an order reaches Served without ever having
+      // been marked Running (e.g. legacy row or admin override), backfill
+      // kitchen_started_at to created_at so the final prep number isn't null.
+      if (!existing.kitchen_started_at) {
+        kitchenTimestampData.kitchen_started_at = nowDate;
+      }
+    }
+
     const updated = await prisma.order.update({
       where: { order_id: orderId },
       data: {
         order_status: nextStatus,
+        ...kitchenTimestampData,
         ...(isCashierTransition
           ? {
               payment_mode: paymentMethod,
@@ -238,6 +272,8 @@ export async function PATCH(
         payment_mode: true,
         discount_amount: true,
         net_total_amount: true,
+        kitchen_started_at: true,
+        kitchen_served_at: true,
       },
     });
 
@@ -264,11 +300,37 @@ export async function PATCH(
           created_by_id: auth.id,
         },
       });
+
+      // Release the dine-in table once payment is booked, but only if no
+      // other order on the same table is still active. This keeps multi-
+      // booking edge cases (shouldn't happen, but be defensive) safe.
+      if (existing.table_id) {
+        const stillActive = await prisma.order.findFirst({
+          where: {
+            table_id: existing.table_id,
+            order_id: { not: existing.order_id },
+            order_status: { in: [...ACTIVE_ORDER_STATUSES] },
+          },
+          select: { order_id: true },
+        });
+        if (!stillActive) {
+          await prisma.table.update({
+            where: { table_id: existing.table_id },
+            data: { status: TABLE_STATUS_AVAILABLE },
+          });
+        }
+      }
     }
 
     return NextResponse.json({
       id: String(updated.order_id),
       status: updated.order_status,
+      kitchenStartedAt: updated.kitchen_started_at
+        ? new Date(updated.kitchen_started_at).getTime()
+        : null,
+      kitchenServedAt: updated.kitchen_served_at
+        ? new Date(updated.kitchen_served_at).getTime()
+        : null,
       paymentMode: updated.payment_mode,
       discountAmount: Number(updated.discount_amount),
       discountType: normalizedDiscountType,

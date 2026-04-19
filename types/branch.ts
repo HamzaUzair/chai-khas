@@ -13,10 +13,14 @@ export interface Branch {
   updated_at: string;
 }
 
-/** Fields sent when creating / updating a branch */
+/**
+ * Fields collected by the branch create / edit form. `branch_code` is no
+ * longer captured here — it is generated server-side per-restaurant and kept
+ * internal so two tenants can both have their own "first branch" without a
+ * global collision.
+ */
 export interface BranchFormData {
   branch_name: string;
-  branch_code: string;
   restaurant_id?: number;
   address?: string;
   city?: string;

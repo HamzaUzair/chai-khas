@@ -41,9 +41,20 @@ interface UsersTableProps {
   loading: boolean;
   onEdit: (user: AppUser) => void;
   onDelete: (user: AppUser) => void;
+  /**
+   * When true the Branch column is omitted entirely. Used by the Super Admin
+   * (Restenzo) panel where every row is a Restaurant Admin with no branch.
+   */
+  hideBranch?: boolean;
 }
 
-const UsersTable: React.FC<UsersTableProps> = ({ users, loading, onEdit, onDelete }) => {
+const UsersTable: React.FC<UsersTableProps> = ({
+  users,
+  loading,
+  onEdit,
+  onDelete,
+  hideBranch = false,
+}) => {
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
@@ -63,7 +74,10 @@ const UsersTable: React.FC<UsersTableProps> = ({ users, loading, onEdit, onDelet
         <table className="w-full text-sm min-w-[920px]">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50/90 border-b border-gray-100">
-              {["ID", "Username", "Full Name", "Role", "Restaurant", "Branch", "Status", "Terminal", "Created", "Actions"].map(
+              {(hideBranch
+                ? ["ID", "Username", "Full Name", "Role", "Restaurant", "Status", "Terminal", "Created", "Actions"]
+                : ["ID", "Username", "Full Name", "Role", "Restaurant", "Branch", "Status", "Terminal", "Created", "Actions"]
+              ).map(
                 (col) => (
                   <th
                     key={col}
@@ -120,15 +134,17 @@ const UsersTable: React.FC<UsersTableProps> = ({ users, loading, onEdit, onDelet
                 </td>
 
                 {/* Branch */}
-                <td className="px-5 py-3.5 whitespace-nowrap">
-                  <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
-                    <Building2 size={13} className="text-gray-400" />
-                    {user.branchName}
-                    {user.branchCode !== "—" && (
-                      <span className="text-gray-400">({user.branchCode})</span>
-                    )}
-                  </span>
-                </td>
+                {!hideBranch && (
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                      <Building2 size={13} className="text-gray-400" />
+                      {user.branchName}
+                      {user.branchCode !== "—" && (
+                        <span className="text-gray-400">({user.branchCode})</span>
+                      )}
+                    </span>
+                  </td>
+                )}
 
                 {/* Status */}
                 <td className="px-5 py-3.5 whitespace-nowrap">

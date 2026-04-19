@@ -11,7 +11,7 @@ interface BranchTableProps {
   onDelete: (branch: Branch) => void;
 }
 
-const cols = ["Branch Name", "Code", "Complete Address", "City", "Status", "Actions"];
+const cols = ["Branch Name", "Complete Address", "City", "Status", "Actions"];
 
 const BranchTable: React.FC<BranchTableProps> = ({
   branches,
@@ -53,7 +53,7 @@ const BranchTable: React.FC<BranchTableProps> = ({
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[700px]">
+        <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-100">
               {cols.map((col) => (
@@ -74,9 +74,6 @@ const BranchTable: React.FC<BranchTableProps> = ({
               >
                 <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap">
                   {b.branch_name}
-                </td>
-                <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                  {b.branch_code}
                 </td>
                 <td className="px-6 py-4 text-gray-600 max-w-[220px] truncate">
                   {b.address || "—"}

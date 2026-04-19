@@ -355,6 +355,13 @@ model Order {
   discount_amount  Decimal     @default(0.00)
   net_total_amount Decimal     @default(0.00)
   payment_mode     String      @default("Cash")
+  /// Set the first time the kitchen flips an order to "Running". Null while
+  /// the order is still Pending so that the Live Kitchen board can tell
+  /// whether the cooking timer has started.
+  kitchen_started_at DateTime?
+  /// Set when the kitchen flips an order to "Served". The final preparation
+  /// duration is `kitchen_served_at - kitchen_started_at`.
+  kitchen_served_at  DateTime?
   created_at       DateTime    @default(now())
   updated_at       DateTime    @updatedAt
 

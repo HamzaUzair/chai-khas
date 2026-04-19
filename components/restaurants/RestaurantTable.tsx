@@ -11,7 +11,7 @@ interface RestaurantTableProps {
   onDelete: (restaurant: Restaurant) => void;
 }
 
-const cols = ["Name", "Code", "Type", "Branches", "Admins", "Status", "Actions"];
+const cols = ["Name", "Code", "Type", "Branches", "Status", "Actions"];
 
 const RestaurantTable: React.FC<RestaurantTableProps> = ({
   restaurants,
@@ -95,9 +95,6 @@ const RestaurantTable: React.FC<RestaurantTableProps> = ({
                 </td>
                 <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
                   {r.branch_count ?? 0}
-                </td>
-                <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
-                  {r.admin_count ?? 0}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span

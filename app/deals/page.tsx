@@ -277,6 +277,7 @@ import {
           if (sessionBranchId !== null) return;
           setFilterBranchId(v);
         }}
+        branchLocked={sessionBranchId !== null}
          statusFilter={statusFilter}
          onStatusChange={setStatusFilter}
          search={search}

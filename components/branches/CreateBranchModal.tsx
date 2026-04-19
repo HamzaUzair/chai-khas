@@ -7,7 +7,6 @@ import type { Branch, BranchFormData } from "@/types/branch";
 
 const emptyForm: BranchFormData = {
   branch_name: "",
-  branch_code: "",
   address: "",
   city: "",
   status: "Active",
@@ -39,7 +38,6 @@ const CreateBranchModal: React.FC<CreateBranchModalProps> = ({
       if (editBranch) {
         setFormData({
           branch_name: editBranch.branch_name,
-          branch_code: editBranch.branch_code,
           address: editBranch.address ?? "",
           city: editBranch.city ?? "",
           status: editBranch.status,
@@ -73,7 +71,6 @@ const CreateBranchModal: React.FC<CreateBranchModalProps> = ({
   const validate = (): boolean => {
     const newErrors: Partial<Record<keyof BranchFormData, string>> = {};
     if (!formData.branch_name.trim()) newErrors.branch_name = "Branch name is required";
-    if (!formData.branch_code.trim()) newErrors.branch_code = "Branch code is required";
     if (!formData.address?.trim()) newErrors.address = "Complete address is required";
     if (!formData.city?.trim()) newErrors.city = "City is required";
     setErrors(newErrors);

@@ -359,6 +359,7 @@ export default function MenuPage() {
           setFilterBranchId(v);
           setFilterCategoryName("all");
         }}
+        branchLocked={sessionBranchId !== null}
         statusFilter={statusFilter}
         onStatusChange={setStatusFilter}
         search={search}

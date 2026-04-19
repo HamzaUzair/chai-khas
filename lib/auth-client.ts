@@ -37,6 +37,10 @@ export const RESTAURANT_ADMIN_ALLOWED_PATHS = new Set([
  * Routes visible in the Branch Admin operational panel. Branch Admins get the
  * full per-branch operational toolkit minus restaurant-wide concerns such as
  * multi-branch management or the Branches list.
+ *
+ * The legacy "/analytics" (Advanced Analytics) route has been merged into the
+ * Branch Admin Dashboard, so it is intentionally excluded here — direct URL
+ * hits bounce to /dashboard via DashboardLayout's role guard.
  */
 export const BRANCH_ADMIN_ALLOWED_PATHS = new Set([
   "/dashboard",
@@ -52,7 +56,6 @@ export const BRANCH_ADMIN_ALLOWED_PATHS = new Set([
   "/dayend",
   "/halls",
   "/roles",
-  "/analytics",
   "/seating",
 ]);
 
@@ -61,6 +64,11 @@ export const BRANCH_ADMIN_ALLOWED_PATHS = new Set([
  * tenant's "has multiple branches" flag. Single-branch tenants have the
  * `/branches` route hidden *and* blocked, so typing the URL directly
  * redirects to the dashboard instead of exposing branch management.
+ *
+ * Multi-branch (Head Office) tenants have the legacy `/analytics`
+ * (Advanced Analytics) route hidden and blocked — that drilldown is now
+ * merged into the Dashboard, so hitting the URL directly redirects to
+ * the Head Office Dashboard rather than exposing a duplicate module.
  */
 export function getRestaurantAdminAllowedPaths(
   session: AuthSession | null
@@ -68,6 +76,11 @@ export function getRestaurantAdminAllowedPaths(
   const paths = new Set(RESTAURANT_ADMIN_ALLOWED_PATHS);
   if (session?.restaurantHasMultipleBranches === false) {
     paths.delete("/branches");
+    paths.delete("/create-order");
+    paths.delete("/analytics");
+  }
+  if (session?.restaurantHasMultipleBranches === true) {
+    paths.delete("/analytics");
     paths.delete("/create-order");
   }
   return paths;
@@ -139,8 +152,13 @@ export function canEditOperational(session: AuthSession | null): boolean {
 
 /**
  * Best-effort inference of the "effective" branch filter value for UI selects.
- * Super Admin and (multi-branch) Restaurant Admin default to "all" while
- * branch-pinned roles are locked to their assigned branch.
+ *
+ *   - Super Admin                          → "all" (platform scope)
+ *   - Restaurant Admin (multi-branch)      → "all" (head-office view)
+ *   - Restaurant Admin (single-branch)     → the tenant's internal branch
+ *     (login auto-populates `session.branchId` so branch-scoped modules do
+ *      not show awkward "All Branches" dropdowns)
+ *   - Branch-pinned roles                  → their assigned branch
  */
 export function getEffectiveBranchId(session: AuthSession | null): number | "all" {
   if (!session) return "all";
@@ -153,12 +171,33 @@ export function getEffectiveBranchId(session: AuthSession | null): number | "all
   ) {
     return session.branchId ?? "all";
   }
+  if (
+    session.role === "RESTAURANT_ADMIN" &&
+    session.restaurantHasMultipleBranches === false &&
+    session.branchId != null
+  ) {
+    return session.branchId;
+  }
   return "all";
 }
 
-/** Branch-scoped roles: UI must not offer "All branches" (mirrors server `isBranchScopedRole`). */
+/**
+ * UI must not offer "All branches" for this session.
+ *
+ *   - Branch-scoped staff roles are always locked to their assigned branch.
+ *   - Single-branch Restaurant Admins are also locked: there is only one
+ *     internal branch and branch management is hidden from them entirely,
+ *     so every branch-owned module auto-scopes to that single branch
+ *     (mirrors server `isBranchScopedRole` + single-branch tenancy).
+ */
 export function isBranchFilterLocked(session: AuthSession | null): boolean {
   if (!session) return false;
+  if (
+    session.role === "RESTAURANT_ADMIN" &&
+    session.restaurantHasMultipleBranches === false
+  ) {
+    return true;
+  }
   return (
     session.role === "BRANCH_ADMIN" ||
     session.role === "ORDER_TAKER" ||

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   RefreshCw,
   ClipboardList,
@@ -20,13 +20,16 @@ import type { Branch } from "@/types/branch";
 import type { AppRole } from "@/types/auth";
 import type { Order, OrderStatus } from "@/types/order";
 import { ORDER_STATUSES } from "@/types/order";
-import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import { apiFetch, getAuthSession, isBranchFilterLocked } from "@/lib/auth-client";
+import type { AuthSession } from "@/types/auth";
 
 export default function OrdersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [authorized, setAuthorized] = useState(false);
   const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
   const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
 
   /* ── Branches ── */
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -56,6 +59,7 @@ export default function OrdersPage() {
         router.replace("/create-order");
         return;
       }
+      setSession(session);
       setSessionRole(session.role);
       setSessionBranchId(session.branchId ?? null);
       if (
@@ -69,9 +73,23 @@ export default function OrdersPage() {
       if (session.role === "CASHIER") {
         setStatusFilter("Served");
       }
+
+      // Deep-link support: allow the dashboard's Order Status Overview
+      // cards (and other in-app links) to pre-select a status filter via
+      // the `?status=` URL parameter. We only accept the canonical
+      // OrderStatus values to avoid arbitrary strings slipping through.
+      const statusParam = searchParams?.get("status");
+      if (statusParam) {
+        if (statusParam === "all") {
+          setStatusFilter("all");
+        } else if ((ORDER_STATUSES as readonly string[]).includes(statusParam)) {
+          setStatusFilter(statusParam as OrderStatus);
+        }
+      }
+
       setAuthorized(true);
     }
-  }, [router]);
+  }, [router, searchParams]);
 
   /* ══════════════ Fetch branches ══════════════ */
   const fetchBranches = useCallback(async () => {
@@ -96,15 +114,23 @@ export default function OrdersPage() {
     setOrdersLoading(true);
     try {
       const params = new URLSearchParams();
+      // Branch-pinned roles (OT / BA / Cashier) and single-branch Restaurant
+      // Admins must never send "all" — they operate inside one branch by
+      // design. Everyone else honours the toolbar selection.
       const effectiveBranchId =
-        (sessionRole === "ORDER_TAKER" ||
+        ((sessionRole === "ORDER_TAKER" ||
           sessionRole === "BRANCH_ADMIN" ||
           sessionRole === "CASHIER") &&
-        sessionBranchId
+          sessionBranchId) ||
+        (isBranchFilterLocked(session) && sessionBranchId)
           ? sessionBranchId
           : filterBranchId;
       if (effectiveBranchId !== "all") params.set("branchId", String(effectiveBranchId));
-      if (statusFilter !== "all") params.set("status", statusFilter);
+      // NOTE: Do NOT pass `status` to the API here. We need the full
+      // branch-scoped dataset so the status chips can show real per-status
+      // counts; the selected chip then filters the visible list on the
+      // client. Passing `status` made the API return only one bucket and
+      // zeroed every other chip.
       if (search.trim()) params.set("search", search.trim());
 
       const res = await apiFetch(`/api/orders${params.toString() ? `?${params}` : ""}`);
@@ -117,7 +143,7 @@ export default function OrdersPage() {
     } finally {
       setOrdersLoading(false);
     }
-  }, [filterBranchId, statusFilter, search, sessionRole, sessionBranchId]);
+  }, [filterBranchId, search, sessionRole, sessionBranchId, session]);
 
   useEffect(() => {
     if (!authorized || branchesLoading) return;
@@ -145,7 +171,12 @@ export default function OrdersPage() {
   }, [branchFiltered]);
 
   /* ══════════════ Fully filtered orders ══════════════ */
-  const filteredOrders = useMemo(() => branchFiltered, [branchFiltered]);
+  // Only the visible list respects the selected status chip; `statusCounts`
+  // above intentionally does NOT, so every chip keeps its real count.
+  const filteredOrders = useMemo(() => {
+    if (statusFilter === "all") return branchFiltered;
+    return branchFiltered.filter((o) => o.status === statusFilter);
+  }, [branchFiltered, statusFilter]);
 
   /* ══════════════ Quick stats ══════════════ */
   const stats = useMemo(() => {
@@ -258,7 +289,12 @@ export default function OrdersPage() {
         branchesLoading={branchesLoading}
         filterBranchId={filterBranchId}
         onBranchChange={(v) => {
-          if (sessionRole === "ORDER_TAKER" || sessionRole === "BRANCH_ADMIN") return;
+          if (
+            sessionRole === "ORDER_TAKER" ||
+            sessionRole === "BRANCH_ADMIN" ||
+            isBranchFilterLocked(session)
+          )
+            return;
           setFilterBranchId(v);
         }}
         statusFilter={statusFilter}
@@ -270,7 +306,8 @@ export default function OrdersPage() {
         branchLocked={
           sessionRole === "ORDER_TAKER" ||
           sessionRole === "BRANCH_ADMIN" ||
-          sessionRole === "CASHIER"
+          sessionRole === "CASHIER" ||
+          isBranchFilterLocked(session)
         }
       />
 
