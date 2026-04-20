@@ -37,6 +37,7 @@ import {
   getAuthSession,
   isBranchFilterLocked,
 } from "@/lib/auth-client";
+import { useBranchStatus } from "@/lib/use-branch-status";
 
 interface Toast {
   id: number;
@@ -100,7 +101,14 @@ export default function DayEndPage() {
   }, []);
 
   const branchLocked = isBranchFilterLocked(session);
-  const canClose = canEditOperational(session);
+  const baseCanClose = canEditOperational(session);
+
+  // Branch-status guard: freeze Close Day on Inactive branches. Only runs
+  // when the viewer is pinned to a single branch (Cashier / Branch Admin /
+  // single-branch Restaurant Admin); multi-branch RA isn't a closer here.
+  const branchStatus = useBranchStatus(authorized);
+  const branchInactive = branchStatus.isInactive;
+  const canClose = baseCanClose && !branchInactive;
 
   /* ── Auth guard ── */
   useEffect(() => {
@@ -346,6 +354,8 @@ export default function DayEndPage() {
 
   return (
     <DashboardLayout title="Day End">
+      {/* Inactive banner rendered globally by DashboardLayout;
+          `branchInactive` still disables Close Day below. */}
       {/* Header Card */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

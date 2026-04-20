@@ -88,8 +88,11 @@ const SalesToolbar: React.FC<SalesToolbarProps> = ({
 }) => {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-4 space-y-4">
-      {/* Row 1 — search + dropdowns */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Row 1 — search + dropdowns
+          Uses a 6-col grid on lg so the Date Range cell (2 date inputs) can
+          claim 2 columns and the second date input never overflows the card
+          edge. Smaller viewports collapse to 1 or 2 columns as before. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         {/* Search */}
         <div>
           <label className="flex items-center gap-1.5 text-[11px] font-medium text-gray-400 mb-1.5 uppercase tracking-wide">
@@ -196,22 +199,25 @@ const SalesToolbar: React.FC<SalesToolbarProps> = ({
           </select>
         </div>
 
-        {/* Date range */}
-        <div>
+        {/* Date range — spans 2 grid columns on lg so both native date
+            inputs have enough room. `min-w-0 w-full` lets each flex child
+            shrink below its intrinsic width (native date inputs otherwise
+            refuse to shrink and push past the card edge). */}
+        <div className="lg:col-span-2 min-w-0">
           <label className="flex items-center gap-1.5 text-[11px] font-medium text-gray-400 mb-1.5 uppercase tracking-wide">
             <CalendarDays size={12} />
             Date Range
           </label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 min-w-0">
             <input
               type="date"
-              className="flex-1 border border-gray-200 rounded-lg px-2.5 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
+              className="flex-1 min-w-0 w-full border border-gray-200 rounded-lg px-2.5 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
               value={dateFrom}
               onChange={(e) => onDateFromChange(e.target.value)}
             />
             <input
               type="date"
-              className="flex-1 border border-gray-200 rounded-lg px-2.5 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
+              className="flex-1 min-w-0 w-full border border-gray-200 rounded-lg px-2.5 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] transition-all"
               value={dateTo}
               onChange={(e) => onDateToChange(e.target.value)}
             />

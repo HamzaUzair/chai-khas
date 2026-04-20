@@ -13,6 +13,11 @@ import { apiFetch } from "@/lib/auth-client";
    editDeal?: Deal | null;
    branches: Branch[];
    branchesLoading: boolean;
+  /**
+   * When set, the branch selector is hidden and the deal is auto-scoped to
+   * this branch. Used for single-branch tenants and branch-pinned roles.
+   */
+  lockedBranchId?: number | null;
  }
 
  const inputBase =
@@ -25,7 +30,9 @@ import { apiFetch } from "@/lib/auth-client";
    editDeal,
    branches,
    branchesLoading,
+  lockedBranchId = null,
  }) => {
+  const branchLocked = lockedBranchId !== null;
   type ApiCategory = {
     category_id: number;
     name: string;
@@ -99,7 +106,7 @@ import { apiFetch } from "@/lib/auth-client";
        setForm({
          name: "",
          type: "",
-         branchId: branches[0]?.branch_id ?? "",
+        branchId: lockedBranchId ?? branches[0]?.branch_id ?? "",
          description: "",
          status: "active",
          price: "",
@@ -107,7 +114,7 @@ import { apiFetch } from "@/lib/auth-client";
        });
      }
      setErrors({});
-   }, [isOpen, editDeal, branches]);
+  }, [isOpen, editDeal, branches, lockedBranchId]);
 
   const selectedById = useMemo(
     () => new Map(form.items.map((item) => [item.id, item])),
@@ -335,40 +342,42 @@ import { apiFetch } from "@/lib/auth-client";
              </div>
 
              {/* Branch */}
-             <div>
-               <label className="block text-sm font-medium text-gray-700 mb-1">
-                 Branch <span className="text-red-500">*</span>
-               </label>
-               <select
-                 className={inputBase}
-                 value={form.branchId}
-                 onChange={(e) =>
-                   setForm((p) => ({
-                     ...p,
-                     branchId: e.target.value === "" ? "" : Number(e.target.value),
-                   }))
-                 }
-                 disabled={branchesLoading || branches.length === 0}
-               >
-                 {branchesLoading ? (
-                   <option value="">Loading branches…</option>
-                 ) : branches.length === 0 ? (
-                   <option value="">No active branches</option>
-                 ) : (
-                   <>
-                     <option value="">Select a branch</option>
-                     {branches.map((b) => (
-                       <option key={b.branch_id} value={b.branch_id}>
-                         {b.branch_name}
-                       </option>
-                     ))}
-                   </>
-                 )}
-               </select>
-               {errors.branchId && (
-                 <p className="text-xs text-red-500 mt-1">{errors.branchId}</p>
-               )}
-             </div>
+            {!branchLocked && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Branch <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className={inputBase}
+                  value={form.branchId}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      branchId: e.target.value === "" ? "" : Number(e.target.value),
+                    }))
+                  }
+                  disabled={branchesLoading || branches.length === 0}
+                >
+                  {branchesLoading ? (
+                    <option value="">Loading branches…</option>
+                  ) : branches.length === 0 ? (
+                    <option value="">No active branches</option>
+                  ) : (
+                    <>
+                      <option value="">Select a branch</option>
+                      {branches.map((b) => (
+                        <option key={b.branch_id} value={b.branch_id}>
+                          {b.branch_name}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+                {errors.branchId && (
+                  <p className="text-xs text-red-500 mt-1">{errors.branchId}</p>
+                )}
+              </div>
+            )}
 
              {/* Price */}
              <div>

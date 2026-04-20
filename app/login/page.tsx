@@ -11,6 +11,7 @@ function getDefaultRouteByRole(role: AuthSession["role"]) {
   if (role === "ORDER_TAKER") return "/create-order";
   if (role === "LIVE_KITCHEN") return "/kitchen";
   if (role === "CASHIER") return "/orders";
+  if (role === "ACCOUNTANT") return "/sales-list";
   if (role === "SUPER_ADMIN") return "/dashboard";
   if (role === "RESTAURANT_ADMIN") return "/dashboard";
   if (role === "BRANCH_ADMIN") return "/dashboard";

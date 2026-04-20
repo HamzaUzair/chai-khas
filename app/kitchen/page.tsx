@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import { useBranchStatus } from "@/lib/use-branch-status";
 import type { AppRole } from "@/types/auth";
+import type { Branch } from "@/types/branch";
 import type { Order } from "@/types/order";
 
 function formatTime(ts: number) {
@@ -58,6 +60,8 @@ export default function KitchenPage() {
   const [sessionRole, setSessionRole] = useState<AppRole>("SUPER_ADMIN");
   const [sessionBranchId, setSessionBranchId] = useState<number | null>(null);
   const [sessionBranchName, setSessionBranchName] = useState<string | null>(null);
+  const [restaurantHasMultipleBranches, setRestaurantHasMultipleBranches] =
+    useState<boolean | null>(null);
   const [search, setSearch] = useState("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,8 +70,36 @@ export default function KitchenPage() {
   const [nowTs, setNowTs] = useState(Date.now());
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
 
+  /* ── Head Office branch selector state ──
+   *
+   * Only shown to multi-branch Restaurant Admin (Head Office) so they can
+   * review the kitchen board of each branch one at a time. Branch-scoped
+   * roles (Branch Admin, Live Kitchen, Cashier, Order Taker) keep their
+   * existing behaviour — they remain pinned to their assigned branch and
+   * never see this dropdown. Single-branch Restaurant Admins are also
+   * excluded since there is only one branch to review.
+   */
+  const isHeadOffice =
+    sessionRole === "RESTAURANT_ADMIN" &&
+    restaurantHasMultipleBranches === true;
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
+
+  // For Live Kitchen (and the rare single-branch RA/BA/LK case) we derive
+  // the inactive-branch banner from the viewer's own session branch. Head
+  // Office doesn't get this banner: they're reviewing other branches via
+  // the dropdown, so we rely on the per-branch active filter in
+  // `/api/branches` (which excludes Inactive) to simply hide them.
+  const branchStatus = useBranchStatus(authorized && !isHeadOffice);
+  const branchInactive = branchStatus.isInactive;
+
   const canUpdateKitchenStatus =
-    sessionRole === "LIVE_KITCHEN" || sessionRole === "SUPER_ADMIN";
+    (sessionRole === "LIVE_KITCHEN" || sessionRole === "SUPER_ADMIN") &&
+    !branchInactive;
+
+  /** Branch id to scope `/api/orders` by for the current viewer. */
+  const effectiveBranchId = sessionBranchId ?? selectedBranchId;
 
   useEffect(() => {
     const session = getAuthSession();
@@ -90,18 +122,66 @@ export default function KitchenPage() {
     setSessionRole(session.role);
     setSessionBranchId(session.branchId ?? null);
     setSessionBranchName(session.branchName ?? null);
+    setRestaurantHasMultipleBranches(
+      session.restaurantHasMultipleBranches ?? null
+    );
     setAuthorized(true);
   }, [router]);
+
+  /* Head Office only: load active branches of the logged-in restaurant so
+   * Head Office can switch which branch's kitchen board is being reviewed.
+   * The `/api/branches` endpoint is already restaurant-scoped server-side
+   * (see `getScopedRestaurantId`), so Head Office can only ever see
+   * branches of their own restaurant — no cross-restaurant leak. */
+  useEffect(() => {
+    if (!authorized || !isHeadOffice) return;
+    let cancelled = false;
+    const run = async () => {
+      setBranchesLoading(true);
+      try {
+        const res = await apiFetch("/api/branches");
+        if (!res.ok) throw new Error("Failed to fetch branches");
+        const data: Branch[] = await res.json();
+        if (cancelled) return;
+        const active = data.filter((b) => b.status === "Active");
+        setBranches(active);
+        setSelectedBranchId((prev) => {
+          if (prev && active.some((b) => b.branch_id === prev)) return prev;
+          return active[0]?.branch_id ?? null;
+        });
+      } catch {
+        if (!cancelled) setBranches([]);
+      } finally {
+        if (!cancelled) setBranchesLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [authorized, isHeadOffice]);
 
   const loadOrders = useCallback(
     async (silent = false) => {
       if (!authorized) return;
+      // Head Office must pick a branch before the kitchen board loads so we
+      // never display a restaurant-wide mix of Pending / Running / Served
+      // cards (which would be confusing for review). Branch-scoped roles
+      // (and single-branch Restaurant Admin) always have `sessionBranchId`
+      // set, so they skip this guard entirely.
+      if (isHeadOffice && effectiveBranchId === null) {
+        setOrders([]);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
       if (!silent) setLoading(true);
       if (silent) setRefreshing(true);
       setError("");
       try {
         const params = new URLSearchParams();
-        if (sessionBranchId) params.set("branchId", String(sessionBranchId));
+        if (effectiveBranchId)
+          params.set("branchId", String(effectiveBranchId));
         const res = await apiFetch(`/api/orders?${params.toString()}`);
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}));
@@ -122,7 +202,7 @@ export default function KitchenPage() {
         setRefreshing(false);
       }
     },
-    [authorized, sessionBranchId]
+    [authorized, effectiveBranchId, isHeadOffice]
   );
 
   useEffect(() => {
@@ -199,6 +279,8 @@ export default function KitchenPage() {
 
   return (
     <DashboardLayout title="Live Kitchen">
+      {/* Inactive banner rendered globally by DashboardLayout;
+          `branchInactive` still disables Mark Running / Mark Served. */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
@@ -209,10 +291,54 @@ export default function KitchenPage() {
             <p className="text-xs text-gray-400 mt-2">
               {sessionBranchName
                 ? `Scoped to ${sessionBranchName}`
+                : isHeadOffice
+                ? selectedBranchId
+                  ? `Reviewing ${
+                      branches.find((b) => b.branch_id === selectedBranchId)
+                        ?.branch_name ?? "selected branch"
+                    }`
+                  : branchesLoading
+                  ? "Loading active branches…"
+                  : "Select a branch to review its kitchen board"
                 : "Scoped by your role permissions"}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {isHeadOffice && (
+              <div className="relative">
+                <Store
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                />
+                <select
+                  value={selectedBranchId ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedBranchId(val === "" ? null : Number(val));
+                  }}
+                  disabled={branchesLoading || branches.length === 0}
+                  className="appearance-none border border-gray-200 rounded-lg pl-9 pr-8 py-2.5 text-sm bg-white text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/30 focus:border-[#ff5a1f] disabled:opacity-60 disabled:cursor-not-allowed min-w-[220px]"
+                  aria-label="Select branch to review"
+                >
+                  {branchesLoading ? (
+                    <option value="">Loading branches…</option>
+                  ) : branches.length === 0 ? (
+                    <option value="">No active branches</option>
+                  ) : (
+                    <>
+                      {selectedBranchId === null && (
+                        <option value="">Select a branch</option>
+                      )}
+                      {branches.map((b) => (
+                        <option key={b.branch_id} value={b.branch_id}>
+                          {b.branch_name}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </div>
+            )}
             <div className="relative">
               <Search
                 size={16}
@@ -242,7 +368,17 @@ export default function KitchenPage() {
         </div>
       )}
 
-      {loading ? (
+      {isHeadOffice && !branchesLoading && branches.length === 0 ? (
+        <div className="bg-white rounded-xl border border-dashed border-gray-200 p-10 text-center text-sm text-gray-500">
+          No active branches found for this restaurant. Activate at least one
+          branch to review its Live Kitchen board.
+        </div>
+      ) : isHeadOffice && effectiveBranchId === null ? (
+        <div className="bg-white rounded-xl border border-dashed border-gray-200 p-10 text-center text-sm text-gray-500">
+          Select a branch from the dropdown above to review its Pending,
+          Running and Served orders.
+        </div>
+      ) : loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 size={30} className="animate-spin text-[#ff5a1f]" />
         </div>

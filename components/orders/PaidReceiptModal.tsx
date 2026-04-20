@@ -209,7 +209,11 @@ const PaidReceiptModal: React.FC<PaidReceiptModalProps> = ({
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-green-700 font-medium">Bill ID:</span>
-                <span className="font-bold text-gray-800">#</span>
+                <span className="font-bold text-gray-800">
+                  {order.billNo && order.billNo.trim().length > 0
+                    ? order.billNo
+                    : "N/A"}
+                </span>
               </div>
             </div>
           </div>

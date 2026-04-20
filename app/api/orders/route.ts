@@ -7,6 +7,7 @@ import {
   requireAuth,
 } from "@/lib/server-auth";
 import type { Prisma } from "@prisma/client";
+import { formatBillNo, isLegacyReference } from "@/lib/bill-number";
 
 /**
  * Order statuses that keep a dine-in table "Occupied". As soon as the order
@@ -244,6 +245,13 @@ function serializeOrder(order: {
     total_amount: unknown;
     menu_item: { name: string };
   }>;
+  /**
+   * Latest payment row for this order, when one exists. Sorted by
+   * `paid_at` desc by the caller so we read the active bill reference.
+   * Legacy rows (pre bill-number format) store `ORD-<id>` here; we
+   * normalize those to the canonical format at serialize time.
+   */
+  payments?: Array<{ reference: string | null; paid_at: Date }>;
 }) {
   const itemRows = order.order_items.map((item) => {
     const menuName = item.menu_item.name;
@@ -263,9 +271,33 @@ function serializeOrder(order: {
     Number(order.net_total_amount) + Number(order.discount_amount) - Number(order.service_charge);
   const subtotal = meta?.subtotal && meta.subtotal > 0 ? meta.subtotal : Math.max(0, fallbackSubtotal);
 
+  // Bill number resolution:
+  //   1. Newest payment row with a canonical `BILL-...` reference wins.
+  //   2. Otherwise (legacy `ORD-42` style, or payment row missing on
+  //      orders that were paid before Payment was wired up) synthesize a
+  //      deterministic bill number from `order_id` and the best
+  //      available payment timestamp so the receipt still shows a clean
+  //      id instead of `#`.
+  //   3. Orders that haven't been paid yet get `null`.
+  const latestPayment = order.payments?.[0];
+  const isPaid =
+    order.order_status === "Paid" ||
+    order.order_status === "Complete" ||
+    order.order_status === "Bill Generated";
+  let billNo: string | null = null;
+  if (latestPayment?.reference && !isLegacyReference(latestPayment.reference)) {
+    billNo = latestPayment.reference;
+  } else if (isPaid) {
+    billNo = formatBillNo(
+      order.order_id,
+      latestPayment?.paid_at ?? order.created_at
+    );
+  }
+
   return {
     id: String(order.order_id),
     orderNo: `ORD-${order.order_id}`,
+    billNo,
     branchId: order.branch_id,
     branchName: order.branch.branch_name,
     type: order.order_type as "Dine In" | "Take Away" | "Delivery",
@@ -353,6 +385,11 @@ export async function GET(request: NextRequest) {
         order_items: {
           include: { menu_item: { select: { name: true } } },
           orderBy: { item_id: "asc" },
+        },
+        payments: {
+          select: { reference: true, paid_at: true },
+          orderBy: { paid_at: "desc" },
+          take: 1,
         },
       },
       orderBy: { created_at: "desc" },

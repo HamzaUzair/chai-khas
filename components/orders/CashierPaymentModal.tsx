@@ -150,6 +150,12 @@ const CashierPaymentModal: React.FC<CashierPaymentModalProps> = ({
         gstAmount,
         total: finalTotal,
         paid: true,
+        // The backend generates the real, DB-stored Bill ID on the
+        // Served → Paid transition and returns it in the PATCH
+        // response. We thread it through so the receipt modal that
+        // opens right after payment shows the same value that will be
+        // persisted and retrievable later from Sales List.
+        billNo: typeof payload?.billNo === "string" ? payload.billNo : null,
       });
       onClose();
     } catch (e) {

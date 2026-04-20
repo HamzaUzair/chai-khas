@@ -21,6 +21,8 @@ export interface SaleItem {
 export interface SaleOrder {
   id: string;           // internal uuid
   orderNo: string;      // e.g. "ORD-4914"
+  /** Unique Bill ID assigned on Cashier payment, e.g. "BILL-20260420-000042". */
+  billNo?: string | null;
   branchId: number;
   branchName: string;
   type: OrderType;

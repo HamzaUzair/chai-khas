@@ -23,6 +23,13 @@ export interface OrderItem {
 export interface Order {
   id: string;
   orderNo: string;
+  /**
+   * Unique human-readable bill number assigned the moment the cashier
+   * marks the order Paid (format `BILL-YYYYMMDD-NNNNNN`). Null while
+   * the order is still unpaid, and rendered as "N/A" for very old
+   * legacy paid orders that predate bill numbers.
+   */
+  billNo?: string | null;
   branchId: number;
   branchName: string;
   type: OrderType;

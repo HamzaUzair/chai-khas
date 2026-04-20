@@ -337,6 +337,7 @@ import {
          editDeal={editingDeal}
          branches={branches}
          branchesLoading={branchesLoading}
+        lockedBranchId={sessionBranchId}
        />
 
        {/* Delete confirmation modal */}

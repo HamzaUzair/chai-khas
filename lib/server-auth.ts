@@ -240,6 +240,92 @@ export async function assertBranchAccess(
 }
 
 /**
+ * Verify that the owning tenant (restaurant) is currently `Active`.
+ *
+ * Restaurants are marked `Inactive` from the Restenzo / Super Admin panel
+ * when the entire tenant is being suspended (non-payment, offboarding,
+ * …). When that happens every child entity — Head Office, all branches,
+ * and every staff role under them — must freeze. This helper lets any
+ * tenant-scoped mutation enforce that rule without having to load the
+ * branch first.
+ *
+ * SUPER_ADMIN is intentionally exempt so platform admins can still clean
+ * up or re-activate a suspended tenant. Everyone else is rejected with a
+ * 423 "Locked" so the client can show the correct "Restaurant Inactive"
+ * copy instead of a generic 403.
+ */
+export async function assertRestaurantActive(
+  user: ServerAuthUser,
+  restaurantId: number | null | undefined
+) {
+  if (user.role === "SUPER_ADMIN") return;
+  if (restaurantId === null || restaurantId === undefined) return;
+  const restaurant = await prisma.restaurant.findUnique({
+    where: { restaurant_id: restaurantId },
+    select: { status: true },
+  });
+  if (!restaurant) throw new AuthError("Restaurant not found", 404);
+  if (restaurant.status !== "Active") {
+    throw new AuthError(
+      "This restaurant is inactive. Operational actions are disabled until it is reactivated.",
+      423
+    );
+  }
+}
+
+/**
+ * Verify that a branch **and its owning restaurant** are both currently
+ * `Active`. Inactive branches (or inactive tenants) are treated as
+ * non-operational: every branch-scoped write (new orders, kitchen status
+ * changes, cashier payments, expense CRUD, day-end closure, menu /
+ * category / deal / hall mutations, …) is rejected so the branch
+ * effectively freezes until a Restaurant / Super Admin reactivates it.
+ *
+ * Restaurant-level suspension takes priority: if the whole tenant is
+ * inactive we surface the "Restaurant Inactive" message so Head Office
+ * understands the suspension is global, not branch-specific.
+ *
+ * SUPER_ADMIN is intentionally exempt — platform admins need to be able
+ * to clean up data on any branch, active or not. Everyone else
+ * (including the Restaurant Admin that owns the branch) is blocked so
+ * nobody can bypass the UI guard and keep writing against an archived
+ * branch or a suspended tenant.
+ *
+ * Throws a 423 "Locked" so the frontend can distinguish an inactive
+ * rejection from a generic 403 permissions failure and surface a
+ * tailored message.
+ */
+export async function assertBranchActive(
+  user: ServerAuthUser,
+  branchId: number | null | undefined
+) {
+  if (user.role === "SUPER_ADMIN") return;
+  if (branchId === null || branchId === undefined) return;
+  const branch = await prisma.branch.findUnique({
+    where: { branch_id: branchId },
+    select: {
+      status: true,
+      restaurant: { select: { status: true } },
+    },
+  });
+  if (!branch) throw new AuthError("Branch not found", 404);
+  // Restaurant-level suspension wins so the client can show a
+  // tenant-wide banner instead of a branch-only one.
+  if (branch.restaurant.status !== "Active") {
+    throw new AuthError(
+      "This restaurant is inactive. Operational actions are disabled until it is reactivated.",
+      423
+    );
+  }
+  if (branch.status !== "Active") {
+    throw new AuthError(
+      "This branch is inactive. Operational actions are disabled until it is reactivated.",
+      423
+    );
+  }
+}
+
+/**
  * Gate for any **mutating** call on branch-scoped operational data
  * (categories, menu, deals, halls, dishes …).
  *
@@ -250,6 +336,10 @@ export async function assertBranchAccess(
  *   - RESTAURANT_ADMIN (multi-branch)    → blocked (view-only head office)
  *   - BRANCH_ADMIN                       → allowed for their own branch
  *   - Staff (OT / Cashier / Accountant)  → allowed for their own branch
+ *
+ * Also refuses every write to an **inactive** branch (see
+ * `assertBranchActive`) so the branch's operational surface goes dark as
+ * soon as it is archived, regardless of the caller's role.
  *
  * Always call `assertBranchAccess(user, branchId)` before this helper so
  * tenant isolation is verified first.
@@ -266,6 +356,7 @@ export async function assertBranchWriteAccess(
       403
     );
   }
+  await assertBranchActive(user, branchId);
 }
 
 /**

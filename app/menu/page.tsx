@@ -419,6 +419,7 @@ export default function MenuPage() {
         editItem={editingItem}
         activeBranches={branches}
         branchesLoading={branchesLoading}
+        lockedBranchId={sessionBranchId}
       />
     </DashboardLayout>
   );

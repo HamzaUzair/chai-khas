@@ -63,10 +63,15 @@ export async function PUT(
 ) {
   try {
     const auth = await requireAuth(request);
+    // CASHIER can edit expenses that belong to their own branch. The two
+    // `assertBranchWriteAccess` checks below (existing row's branch + the
+    // request payload's branch) prevent moving an expense into a different
+    // branch or editing another branch's expense.
     if (
       auth.role !== "SUPER_ADMIN" &&
       auth.role !== "RESTAURANT_ADMIN" &&
-      auth.role !== "BRANCH_ADMIN"
+      auth.role !== "BRANCH_ADMIN" &&
+      auth.role !== "CASHIER"
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -166,10 +171,15 @@ export async function DELETE(
 ) {
   try {
     const auth = await requireAuth(request);
+    // CASHIER can delete expenses that belong to their own branch. The
+    // `assertBranchWriteAccess(auth, existing.branch_id)` check below
+    // enforces this — the cashier cannot delete another branch's expense
+    // even by supplying that expense's id.
     if (
       auth.role !== "SUPER_ADMIN" &&
       auth.role !== "RESTAURANT_ADMIN" &&
-      auth.role !== "BRANCH_ADMIN"
+      auth.role !== "BRANCH_ADMIN" &&
+      auth.role !== "CASHIER"
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

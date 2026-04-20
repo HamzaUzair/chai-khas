@@ -130,10 +130,15 @@ async function resolveBranch(
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    // CASHIER can view Day End for their own branch (auto-pinned via
+    // `resolveBranch` below). `resolveBranch` ignores any `branchId` query
+    // param for branch-scoped roles, so a cashier cannot read another
+    // branch's day even by tampering with the URL.
     if (
       auth.role !== "SUPER_ADMIN" &&
       auth.role !== "RESTAURANT_ADMIN" &&
-      auth.role !== "BRANCH_ADMIN"
+      auth.role !== "BRANCH_ADMIN" &&
+      auth.role !== "CASHIER"
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -381,10 +386,15 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    // CASHIER is allowed to close the day for their assigned branch.
+    // `assertBranchWriteAccess` below verifies the requested branch matches
+    // the cashier's own `branchId` (via `isBranchScopedRole`), so this can
+    // never close another branch's day.
     if (
       auth.role !== "SUPER_ADMIN" &&
       auth.role !== "RESTAURANT_ADMIN" &&
-      auth.role !== "BRANCH_ADMIN"
+      auth.role !== "BRANCH_ADMIN" &&
+      auth.role !== "CASHIER"
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

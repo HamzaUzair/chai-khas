@@ -71,10 +71,19 @@ function serializeExpense(row: {
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    // CASHIER and ACCOUNTANT can list expenses for their own branch only.
+    // `buildBranchScopeFilter` below pins branch-scoped roles to their
+    // `branch_id`, so the `branchId` query param is ignored for these
+    // roles — preventing cross-branch reads even via URL tampering. The
+    // Accountant is view-only: POST / PUT / DELETE handlers below do NOT
+    // accept ACCOUNTANT, so listing is the only mutation-free surface
+    // they can reach.
     if (
       auth.role !== "SUPER_ADMIN" &&
       auth.role !== "RESTAURANT_ADMIN" &&
-      auth.role !== "BRANCH_ADMIN"
+      auth.role !== "BRANCH_ADMIN" &&
+      auth.role !== "CASHIER" &&
+      auth.role !== "ACCOUNTANT"
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -185,10 +194,15 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    // CASHIER can create expenses against their own branch only.
+    // `assertBranchWriteAccess(auth, branchId)` later in this handler
+    // verifies the requested branch matches the cashier's assigned branch
+    // (via `isBranchScopedRole`), so another branch's id cannot be used.
     if (
       auth.role !== "SUPER_ADMIN" &&
       auth.role !== "RESTAURANT_ADMIN" &&
-      auth.role !== "BRANCH_ADMIN"
+      auth.role !== "BRANCH_ADMIN" &&
+      auth.role !== "CASHIER"
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

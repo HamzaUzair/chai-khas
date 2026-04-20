@@ -25,6 +25,12 @@ interface MenuItemModalProps {
   editItem?: MenuItem | null;
   activeBranches: Branch[];
   branchesLoading: boolean;
+  /**
+   * When set, the branch selector is hidden and the form auto-scopes to this
+   * branch. Used for single-branch tenants and branch-pinned roles where the
+   * tenant has exactly one operational branch.
+   */
+  lockedBranchId?: number | null;
 }
 
 const inputBase =
@@ -37,7 +43,9 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
   editItem,
   activeBranches,
   branchesLoading,
+  lockedBranchId = null,
 }) => {
+  const branchLocked = lockedBranchId !== null;
   const [form, setForm] = useState<MenuItemFormData>(emptyForm);
   const [errors, setErrors] = useState<Partial<Record<keyof MenuItemFormData, string>>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -66,11 +74,14 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
           status: editItem.status,
         });
       } else {
-        setForm(emptyForm);
+        setForm({
+          ...emptyForm,
+          branchId: lockedBranchId ?? "",
+        });
       }
       setErrors({});
     }
-  }, [isOpen, editItem]);
+  }, [isOpen, editItem, lockedBranchId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -268,40 +279,42 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Branch <span className="text-red-500">*</span>
-            </label>
-            <select
-              className={`${inputBase} appearance-none bg-white cursor-pointer ${
-                errors.branchId ? "border-red-400 ring-2 ring-red-100" : ""
-              }`}
-              value={form.branchId}
-              onChange={(e) => {
-                const val = e.target.value;
-                update("branchId", val === "" ? "" : Number(val));
-              }}
-              disabled={branchesLoading || activeBranches.length === 0}
-            >
-              {branchesLoading ? (
-                <option value="">Loading branches…</option>
-              ) : activeBranches.length === 0 ? (
-                <option value="">No active branches</option>
-              ) : (
-                <>
-                  <option value="">Select a branch</option>
-                  {activeBranches.map((b) => (
-                    <option key={b.branch_id} value={b.branch_id}>
-                      {b.branch_name}
-                    </option>
-                  ))}
-                </>
+          {!branchLocked && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Branch <span className="text-red-500">*</span>
+              </label>
+              <select
+                className={`${inputBase} appearance-none bg-white cursor-pointer ${
+                  errors.branchId ? "border-red-400 ring-2 ring-red-100" : ""
+                }`}
+                value={form.branchId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  update("branchId", val === "" ? "" : Number(val));
+                }}
+                disabled={branchesLoading || activeBranches.length === 0}
+              >
+                {branchesLoading ? (
+                  <option value="">Loading branches…</option>
+                ) : activeBranches.length === 0 ? (
+                  <option value="">No active branches</option>
+                ) : (
+                  <>
+                    <option value="">Select a branch</option>
+                    {activeBranches.map((b) => (
+                      <option key={b.branch_id} value={b.branch_id}>
+                        {b.branch_name}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+              {errors.branchId && (
+                <p className="text-xs text-red-500 mt-1">{errors.branchId}</p>
               )}
-            </select>
-            {errors.branchId && (
-              <p className="text-xs text-red-500 mt-1">{errors.branchId}</p>
-            )}
-          </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -317,7 +330,9 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
             >
               <option value="">
                 {!form.branchId
-                  ? "Select branch first"
+                  ? branchLocked
+                    ? "Loading..."
+                    : "Select branch first"
                   : categoriesLoading
                   ? "Loading categories..."
                   : categories.length === 0

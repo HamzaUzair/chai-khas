@@ -6,6 +6,7 @@ import {
   requireAuth,
 } from "@/lib/server-auth";
 import type { Prisma } from "@prisma/client";
+import { formatBillNo, isLegacyReference } from "@/lib/bill-number";
 
 const LEGACY_PAID_STATUSES = new Set(["Complete", "Bill Generated"]);
 
@@ -103,33 +104,56 @@ export async function GET(request: NextRequest) {
           },
           orderBy: { item_id: "asc" },
         },
+        payments: {
+          select: { reference: true, paid_at: true },
+          orderBy: { paid_at: "desc" },
+          take: 1,
+        },
       },
       orderBy: { created_at: "desc" },
       take: 500,
     });
 
-    const payload = orders.map((order) => ({
-      id: String(order.order_id),
-      orderNo: `ORD-${order.order_id}`,
-      branchId: order.branch_id,
-      branchName: order.branch.branch_name,
-      type: order.order_type,
-      table: order.table?.table_number ?? undefined,
-      subtotal: Number(order.g_total_amount),
-      discount: Number(order.discount_amount),
-      serviceCharge: Number(order.service_charge),
-      total: Number(order.net_total_amount),
-      status: normalizeStatus(order.order_status),
-      paymentMethod: normalizePaymentMode(order.payment_mode),
-      paid: normalizeStatus(order.order_status) === "Paid",
-      createdAt: order.created_at.getTime(),
-      items: order.order_items.map((item) => ({
-        id: String(item.item_id),
-        name: item.menu_item.name,
-        qty: Number(item.quantity),
-        price: Number(item.price),
-      })),
-    }));
+    const payload = orders.map((order) => {
+      const status = normalizeStatus(order.order_status);
+      const paid = status === "Paid";
+      // Match the logic in `/api/orders` so the Sales List and the
+      // Cashier's paid-receipt screen always surface the same Bill ID
+      // for the same order — see `lib/bill-number.ts`.
+      const latestPayment = order.payments[0];
+      let billNo: string | null = null;
+      if (latestPayment?.reference && !isLegacyReference(latestPayment.reference)) {
+        billNo = latestPayment.reference;
+      } else if (paid) {
+        billNo = formatBillNo(
+          order.order_id,
+          latestPayment?.paid_at ?? order.created_at
+        );
+      }
+      return {
+        id: String(order.order_id),
+        orderNo: `ORD-${order.order_id}`,
+        billNo,
+        branchId: order.branch_id,
+        branchName: order.branch.branch_name,
+        type: order.order_type,
+        table: order.table?.table_number ?? undefined,
+        subtotal: Number(order.g_total_amount),
+        discount: Number(order.discount_amount),
+        serviceCharge: Number(order.service_charge),
+        total: Number(order.net_total_amount),
+        status,
+        paymentMethod: normalizePaymentMode(order.payment_mode),
+        paid,
+        createdAt: order.created_at.getTime(),
+        items: order.order_items.map((item) => ({
+          id: String(item.item_id),
+          name: item.menu_item.name,
+          qty: Number(item.quantity),
+          price: Number(item.price),
+        })),
+      };
+    });
 
     const filteredByLooseSearch = searchParam
       ? payload.filter((order) => order.orderNo.toLowerCase().includes(searchParam.toLowerCase()))

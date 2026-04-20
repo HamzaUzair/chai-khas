@@ -89,7 +89,34 @@ export function getRestaurantAdminAllowedPaths(
 export const STAFF_ALLOWED_PATHS = new Set(["/dashboard"]);
 export const ORDER_TAKER_ALLOWED_PATHS = new Set(["/create-order", "/order-deals"]);
 export const LIVE_KITCHEN_ALLOWED_PATHS = new Set(["/kitchen"]);
-export const CASHIER_ALLOWED_PATHS = new Set(["/orders"]);
+/**
+ * Routes visible in the Accountant finance/reporting panel. The Accountant
+ * is a *view-only* finance role — they can open Sales List, Sales Report,
+ * Menu Sales and Expenses but they cannot mutate expenses (Add / Edit /
+ * Delete are all hidden in the UI and rejected by the API). Every module
+ * here is branch-scoped server-side via `isBranchScopedRole(ACCOUNTANT)`,
+ * so both single-branch tenants (internal default branch) and multi-branch
+ * tenants (assigned branch only) get the correct slice of data.
+ */
+export const ACCOUNTANT_ALLOWED_PATHS = new Set([
+  "/sales-list",
+  "/sales-report",
+  "/menu-sales",
+  "/expenses",
+]);
+// Cashiers can reach the Orders module (their main workspace), the Expenses
+// module (to log branch-level expenses like cash refills, utilities paid at
+// the counter, etc.), and the Day End module for their own branch. Every
+// other path falls back to /orders via the DashboardLayout role guard. The
+// backing APIs re-enforce branch ownership on the server via
+// `assertBranchWriteAccess` + `buildBranchScopeFilter`, so even if this
+// client-side whitelist were bypassed the data would still be locked to the
+// cashier's assigned branch.
+export const CASHIER_ALLOWED_PATHS = new Set([
+  "/orders",
+  "/expenses",
+  "/dayend",
+]);
 
 export function getAuthSession(): AuthSession | null {
   if (typeof window === "undefined") return null;
@@ -125,6 +152,21 @@ export function isRestaurantAdmin(session: AuthSession | null) {
 
 export function isBranchAdmin(session: AuthSession | null) {
   return session?.role === "BRANCH_ADMIN";
+}
+
+export function isAccountant(session: AuthSession | null) {
+  return session?.role === "ACCOUNTANT";
+}
+
+/**
+ * Single source of truth for "can this session mutate expenses?". The
+ * Accountant is a view-only finance role, so Add / Edit / Delete actions
+ * are hidden in the UI and rejected server-side. All other role logic
+ * (Restaurant Admin read-only in multi-branch mode, etc.) still applies.
+ */
+export function canMutateExpenses(session: AuthSession | null): boolean {
+  if (isAccountant(session)) return false;
+  return canEditOperational(session);
 }
 
 /**

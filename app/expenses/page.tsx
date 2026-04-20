@@ -29,10 +29,12 @@ import type { Branch } from "@/types/branch";
 import type { AuthSession } from "@/types/auth";
 import {
   apiFetch,
-  canEditOperational,
+  canMutateExpenses,
   getAuthSession,
+  isAccountant,
   isBranchFilterLocked,
 } from "@/lib/auth-client";
+import { useBranchStatus } from "@/lib/use-branch-status";
 
 const emptyStats: ExpenseListStats = {
   scopeCount: 0,
@@ -103,7 +105,20 @@ export default function ExpensesPage() {
   );
 
   const branchLocked = isBranchFilterLocked(session);
-  const canMutate = canEditOperational(session);
+  // Accountant is a view-only finance role: hide Add / Edit / Delete
+  // action UI. `canMutateExpenses` returns false for Accountant and also
+  // honors the multi-branch Restaurant Admin read-only head-office rule.
+  const baseCanMutate = canMutateExpenses(session);
+  const isFinanceViewer = isAccountant(session);
+
+  // Branch status guard: Cashier / Branch Admin / single-branch Restaurant
+  // Admin are pinned to one branch, so we freeze Add / Edit / Delete when
+  // that branch is Inactive. Multi-branch Restaurant Admin already can't
+  // mutate (head-office read-only), so we skip the extra check for them
+  // — but the backend still rejects 423 if they try.
+  const branchStatus = useBranchStatus(authorized);
+  const branchInactive = branchStatus.isInactive;
+  const canMutate = baseCanMutate && !branchInactive;
 
   useEffect(() => {
     if (localStorage.getItem("isAuthenticated") !== "true") {
@@ -321,22 +336,29 @@ export default function ExpensesPage() {
             <RefreshCw size={15} />
             Refresh
           </button>
-          <button
-            onClick={openAdd}
-            disabled={branches.length === 0 || !canMutate}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <PlusCircle size={15} />
-            Add Expense
-          </button>
+          {!isFinanceViewer && (
+            <button
+              onClick={openAdd}
+              disabled={branches.length === 0 || !canMutate}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <PlusCircle size={15} />
+              Add Expense
+            </button>
+          )}
         </div>
       </div>
 
-      {session && !canMutate && (
+      {/* Inactive banner rendered globally by DashboardLayout; the
+          `branchInactive` flag still gates the Add/Edit/Delete buttons
+          and the read-only banner below. */}
+
+      {session && !canMutate && !branchInactive && (
         <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3.5 mb-6 text-sm text-slate-700">
           <AlertTriangle size={16} className="shrink-0 text-amber-500" />
-          Restaurant Admin is view-only for multi-branch restaurants. Branch Admins can add or edit
-          expenses for their branch.
+          {isFinanceViewer
+            ? "Accountant is a view-only finance role. You can browse, search, and filter expenses but cannot add, edit, or delete them."
+            : "Restaurant Admin is view-only for multi-branch restaurants. Branch Admins can add or edit expenses for their branch."}
         </div>
       )}
 
@@ -410,18 +432,23 @@ export default function ExpensesPage() {
             <p className="text-sm text-gray-400">
               {stats.scopeCount > 0
                 ? "Try adjusting your filters or search term."
-                : 'Click "Add Expense" to create your first entry.'}
+                : isFinanceViewer
+                  ? "No expenses have been recorded for this branch yet."
+                  : 'Click "Add Expense" to create your first entry.'}
             </p>
           </div>
-          {stats.scopeCount === 0 && branches.length > 0 && canMutate && (
-            <button
-              onClick={openAdd}
-              className="mt-2 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors shadow-sm cursor-pointer"
-            >
-              <PlusCircle size={15} />
-              Add Expense
-            </button>
-          )}
+          {stats.scopeCount === 0 &&
+            branches.length > 0 &&
+            canMutate &&
+            !isFinanceViewer && (
+              <button
+                onClick={openAdd}
+                className="mt-2 inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-[#ff5a1f] text-white text-sm font-semibold hover:bg-[#e04e18] transition-colors shadow-sm cursor-pointer"
+              >
+                <PlusCircle size={15} />
+                Add Expense
+              </button>
+            )}
         </div>
       ) : (
         <>

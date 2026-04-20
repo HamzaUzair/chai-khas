@@ -93,8 +93,34 @@ const liveKitchenMenu: SidebarItem[] = [
   { label: "Kitchen", icon: <ChefHat size={20} />, href: "/kitchen" },
 ];
 
+/* ══════════════ Cashier limited menu ══════════════ *
+ * Cashiers handle served orders + collect payments, and can run Day End
+ * for their assigned branch. Day End reuses the exact same page as the
+ * Branch Admin / single-branch Restaurant Admin (see `app/dayend/page.tsx`);
+ * branch locking is enforced via `isBranchFilterLocked(CASHIER) === true`,
+ * so they cannot view or close another branch's day.
+ */
 const cashierMenu: SidebarItem[] = [
   { label: "Orders", icon: <ClipboardList size={20} />, href: "/orders" },
+  { label: "Expenses", icon: <Wallet size={20} />, href: "/expenses" },
+  { label: "Day End", icon: <CalendarCheck size={20} />, href: "/dayend" },
+];
+
+/* ══════════════ Accountant finance-only menu ══════════════ *
+ * Accountant is a read-only finance/reporting role. They can browse every
+ * finance module but cannot mutate expenses (Add/Edit/Delete are hidden in
+ * the UI and rejected by the API). Operational modules — categories, menu,
+ * deals, kitchen, orders/POS, halls, day-end closing, roles — are
+ * intentionally excluded so this panel feels like a proper finance view.
+ * Branch scope is enforced server-side via `isBranchScopedRole(ACCOUNTANT)`
+ * so single-branch tenants see their internal default branch and
+ * multi-branch tenants only see the accountant's assigned branch.
+ */
+const accountantMenu: SidebarItem[] = [
+  { label: "Sales List", icon: <Receipt size={20} />, href: "/sales-list" },
+  { label: "Sales Report", icon: <BarChart3 size={20} />, href: "/sales-report" },
+  { label: "Menu Sales", icon: <PieChart size={20} />, href: "/menu-sales" },
+  { label: "Expenses", icon: <Wallet size={20} />, href: "/expenses" },
 ];
 
 const staffMenu: SidebarItem[] = [
@@ -152,6 +178,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       ? liveKitchenMenu
       : role === "CASHIER"
       ? cashierMenu
+      : role === "ACCOUNTANT"
+      ? accountantMenu
       : staffMenu;
 
   const panelLabel =
@@ -167,6 +195,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       ? "Live Kitchen"
       : role === "CASHIER"
       ? "Cashier"
+      : role === "ACCOUNTANT"
+      ? "Accountant"
       : "Staff Panel";
 
   const baseClasses =
@@ -222,7 +252,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           </div>
         )}
 
-        {role === "BRANCH_ADMIN" &&
+        {(role === "BRANCH_ADMIN" || role === "ACCOUNTANT") &&
           (session?.restaurantName || session?.branchName) && (
             <div className="mx-3 mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
               {session?.restaurantName && (

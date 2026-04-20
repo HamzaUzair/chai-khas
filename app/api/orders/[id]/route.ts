@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { AuthError, assertBranchAccess, requireAuth } from "@/lib/server-auth";
+import {
+  AuthError,
+  assertBranchAccess,
+  assertBranchActive,
+  requireAuth,
+} from "@/lib/server-auth";
+import { formatBillNo } from "@/lib/bill-number";
 
 const ALLOWED_KITCHEN_STATUSES = new Set(["Running", "Served"]);
 /**
@@ -77,6 +83,11 @@ export async function PATCH(
     }
 
     await assertBranchAccess(auth, existing.branch_id);
+    // Freeze operational writes (kitchen Running/Served, cashier Paid) on
+    // archived branches. `assertBranchWriteAccess` isn't used here because
+    // the per-role gates below already encode who may flip each status;
+    // we just need the active-branch check on top of that.
+    await assertBranchActive(auth, existing.branch_id);
 
     const isKitchenTransition = ALLOWED_KITCHEN_STATUSES.has(nextStatus);
     const isCashierTransition = nextStatus === "Paid";
@@ -277,6 +288,12 @@ export async function PATCH(
       },
     });
 
+    // Generated once and reused for DB write + response so the client
+    // sees the exact same value that was stored.
+    const billNo = isCashierTransition
+      ? formatBillNo(updated.order_id, nowDate)
+      : null;
+
     if (isCashierTransition) {
       await prisma.payment.create({
         data: {
@@ -296,7 +313,10 @@ export async function PATCH(
               ? "JAZZCash"
               : "BANK_TRANSFER",
           status: "PAID",
-          reference: `ORD-${updated.order_id}`,
+          // The bill number IS the payment reference — human-readable,
+          // unique, and surfaced on every receipt / audit page.
+          reference: billNo,
+          paid_at: nowDate,
           created_by_id: auth.id,
         },
       });
@@ -342,6 +362,9 @@ export async function PATCH(
       gstPercent: normalizedGstPercent,
       gstAmount,
       finalTotal: Number(updated.net_total_amount),
+      // Real, saved Bill ID for the Paid Receipt modal. `null` for
+      // non-cashier (kitchen) transitions where no payment row exists.
+      billNo,
     });
   } catch (err) {
     if (err instanceof AuthError) {

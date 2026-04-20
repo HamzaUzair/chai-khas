@@ -21,6 +21,7 @@ import type { AppRole } from "@/types/auth";
 import type { Order, OrderStatus } from "@/types/order";
 import { ORDER_STATUSES } from "@/types/order";
 import { apiFetch, getAuthSession, isBranchFilterLocked } from "@/lib/auth-client";
+import { useBranchStatus } from "@/lib/use-branch-status";
 import type { AuthSession } from "@/types/auth";
 
 export default function OrdersPage() {
@@ -48,6 +49,13 @@ export default function OrdersPage() {
   const [viewOrder, setViewOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [payOrder, setPayOrder] = useState<Order | null>(null);
+
+  // Branch status guard. Scoped to the viewer's own session branch — so
+  // Cashier / Branch Admin / single-branch Restaurant Admin see the banner
+  // and Pay is disabled. Multi-branch RA (Head Office) isn't the payment
+  // operator here, so their behaviour is unchanged.
+  const branchStatus = useBranchStatus(authorized);
+  const branchInactive = branchStatus.isInactive;
 
   /* ══════════════ Auth guard ══════════════ */
   useEffect(() => {
@@ -178,7 +186,16 @@ export default function OrdersPage() {
     return branchFiltered.filter((o) => o.status === statusFilter);
   }, [branchFiltered, statusFilter]);
 
-  /* ══════════════ Quick stats ══════════════ */
+  /* ══════════════ Quick stats ══════════════
+   *
+   * Only the "Today's Orders" card is date-scoped to the current calendar
+   * day; Pending / Running / Paid intentionally count the full
+   * branch-scoped dataset so the four top cards stay in sync with the
+   * status chip row right below them (e.g. "Paid 18"). Previously every
+   * card shared the `todayOrders` subset, which zeroed all four cards on
+   * any day where no new orders had been placed yet — even when there
+   * were 18 paid orders from yesterday still visible in the table.
+   */
   const stats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -187,9 +204,9 @@ export default function OrdersPage() {
     const todayOrders = branchFiltered.filter((o) => o.createdAt >= todayTs);
     return {
       total: todayOrders.length,
-      running: todayOrders.filter((o) => o.status === "Running").length,
-      paid: todayOrders.filter((o) => o.status === "Paid").length,
-      pending: todayOrders.filter((o) => o.status === "Pending").length,
+      running: branchFiltered.filter((o) => o.status === "Running").length,
+      paid: branchFiltered.filter((o) => o.status === "Paid").length,
+      pending: branchFiltered.filter((o) => o.status === "Pending").length,
     };
   }, [branchFiltered]);
 
@@ -235,6 +252,8 @@ export default function OrdersPage() {
 
   return (
     <DashboardLayout title="Orders">
+      {/* Inactive banner rendered globally by DashboardLayout;
+          `branchInactive` still hides Pay on the Cashier row buttons. */}
       {/* ── Page Header ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -317,7 +336,7 @@ export default function OrdersPage() {
           orders={filteredOrders}
           loading={branchesLoading || ordersLoading}
           onView={setViewOrder}
-          onPay={setPayOrder}
+          onPay={branchInactive ? undefined : setPayOrder}
           isCashierMode={sessionRole === "CASHIER"}
         />
       </div>
@@ -326,7 +345,7 @@ export default function OrdersPage() {
           orders={filteredOrders}
           loading={branchesLoading || ordersLoading}
           onView={setViewOrder}
-          onPay={setPayOrder}
+          onPay={branchInactive ? undefined : setPayOrder}
           isCashierMode={sessionRole === "CASHIER"}
         />
       </div>

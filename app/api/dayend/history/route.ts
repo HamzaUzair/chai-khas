@@ -23,10 +23,14 @@ function formatDate(d: Date): string {
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth(request);
+    // CASHIER can see Day End history for their own branch only.
+    // `buildBranchScopeFilter` below pins branch-scoped roles to their own
+    // `branch_id` regardless of the `branchId` query param.
     if (
       auth.role !== "SUPER_ADMIN" &&
       auth.role !== "RESTAURANT_ADMIN" &&
-      auth.role !== "BRANCH_ADMIN"
+      auth.role !== "BRANCH_ADMIN" &&
+      auth.role !== "CASHIER"
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

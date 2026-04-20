@@ -156,7 +156,11 @@ const SalesReceiptModal: React.FC<SalesReceiptModalProps> = ({ order, onClose })
             )}
             <div className="flex justify-between">
               <span className="text-gray-400">Bill ID</span>
-              <span className="font-semibold text-gray-700">{order.id.slice(0, 8).toUpperCase()}</span>
+              <span className="font-semibold text-gray-700">
+                {order.billNo && order.billNo.trim().length > 0
+                  ? order.billNo
+                  : "N/A"}
+              </span>
             </div>
           </div>
 

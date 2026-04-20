@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Minus, Plus, Search, Trash2 } from "lucide-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { apiFetch, getAuthSession } from "@/lib/auth-client";
+import { useBranchStatus } from "@/lib/use-branch-status";
 import {
   clearOrderTakerCart,
   loadOrderTakerCart,
@@ -55,6 +56,12 @@ export default function CreateOrderPage() {
   const [cart, setCart] = useState<OrderTakerCartLine[]>([]);
   const [variationPickerFor, setVariationPickerFor] = useState<ApiMenuItem | null>(null);
   const skipNextCartPersist = useRef(true);
+
+  // Live branch status guard: if the assigned branch goes Inactive mid-
+  // session we freeze the POS (banner + disabled Place Order). Backend
+  // already refuses with 423 so this is a UX layer, not a security one.
+  const branchStatus = useBranchStatus(authorized);
+  const branchInactive = branchStatus.isInactive;
 
   useEffect(() => {
     const session = getAuthSession();
@@ -203,6 +210,10 @@ export default function CreateOrderPage() {
     setError("");
     setSuccess("");
     if (!sessionBranchId) return;
+    if (branchInactive) {
+      setError("This branch is inactive. Ordering is disabled.");
+      return;
+    }
     const menuLines = cart.filter((r): r is MenuCartLine => r.kind === "menu");
     const dealLines = cart.filter((r) => r.kind === "deal");
     if (menuLines.length === 0 && dealLines.length === 0) {
@@ -271,6 +282,9 @@ export default function CreateOrderPage() {
 
   return (
     <DashboardLayout title={sessionRole === "ORDER_TAKER" ? "Order Taker POS" : "Create Order"}>
+      {/* Inactive branch/tenant banner is rendered globally by
+          DashboardLayout via `useBranchStatus`; `branchInactive` here is
+          still used to gate the Place Order button below. */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <select
@@ -503,11 +517,16 @@ export default function CreateOrderPage() {
                 onClick={placeOrder}
                 disabled={
                   saving ||
+                  branchInactive ||
                   !cart.some((r) => r.kind === "menu" || r.kind === "deal")
                 }
-                className="w-full rounded-lg bg-[#ff5a1f] text-white py-2.5 text-sm font-semibold hover:bg-[#e04e18] disabled:opacity-50"
+                className="w-full rounded-lg bg-[#ff5a1f] text-white py-2.5 text-sm font-semibold hover:bg-[#e04e18] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? "Placing..." : "Place Order"}
+                {branchInactive
+                  ? "Branch Inactive"
+                  : saving
+                    ? "Placing..."
+                    : "Place Order"}
               </button>
             </div>
           </div>
