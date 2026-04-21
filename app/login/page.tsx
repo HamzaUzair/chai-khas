@@ -2,8 +2,21 @@
 
 import React, { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import Input from "@/components/ui/Input";
-import Button from "@/components/ui/Button";
+import Link from "next/link";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  ShieldCheck,
+  Sparkles,
+  Zap,
+} from "lucide-react";
+import Logo from "@/components/site/Logo";
+import ThemeToggle from "@/components/theme/ThemeToggle";
+import SiteBodyClass from "@/components/site/SiteBodyClass";
 import { apiFetch, getAuthSession, setAuthSession } from "@/lib/auth-client";
 import type { AuthSession } from "@/types/auth";
 
@@ -22,10 +35,11 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  // If already authenticated, redirect straight to dashboard
   useEffect(() => {
     if (typeof window !== "undefined") {
       const session = getAuthSession();
@@ -64,129 +78,223 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#fde8d8] via-[#f5e6d3] to-[#fde8d8] p-4">
-      <div className="w-full max-w-md rounded-2xl shadow-xl overflow-hidden bg-white">
-        {/* ── Orange Header ── */}
-        <div className="bg-[#ff5a1f] px-8 pt-10 pb-10 flex flex-col items-center gap-3">
-          {/* Circle avatar */}
-          <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-md">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-11 w-11 text-[#ff5a1f]"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
-              />
-            </svg>
-          </div>
+    <main className="site-scope min-h-screen grid lg:grid-cols-2 bg-white dark:bg-[#05070d] text-gray-900 dark:text-gray-100">
+      <SiteBodyClass />
 
-          <h1 className="text-2xl font-bold text-white tracking-wide">
-            Welcome Back
+      {/* Left — Brand panel */}
+      <aside className="relative hidden lg:flex flex-col justify-between p-10 xl:p-14 bg-gradient-brand text-white overflow-hidden">
+        <div
+          aria-hidden
+          className="absolute -top-32 -left-24 h-[28rem] w-[28rem] rounded-full bg-white/15 blur-3xl animate-blob"
+        />
+        <div
+          aria-hidden
+          className="absolute -bottom-24 -right-24 h-[24rem] w-[24rem] rounded-full bg-white/10 blur-3xl animate-blob"
+          style={{ animationDelay: "-5s" }}
+        />
+
+        <div className="relative">
+          <Logo href="/" variant="mono" size="md" />
+        </div>
+
+        <div className="relative max-w-md">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 text-white text-xs font-semibold tracking-wide">
+            <Sparkles className="h-3 w-3" />
+            Welcome back
+          </span>
+          <h1 className="mt-5 text-4xl xl:text-5xl font-extrabold tracking-tight leading-[1.08]">
+            Run your restaurant with calm precision.
           </h1>
-          <p className="text-white/90 text-sm">
-            Sign in to Restaurant Management
+          <p className="mt-4 text-white/90 text-base leading-relaxed">
+            Sign in to access orders, live kitchen, cashier, reports and every
+            tool your team relies on all in one place.
           </p>
+          <ul className="mt-6 space-y-2.5 text-sm text-white/90">
+            <li className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4" />
+              Single sign-on for every role on your team
+            </li>
+            <li className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4" />
+              Encrypted end to end, audited on every action
+            </li>
+            <li className="flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Instant access to orders & live kitchen
+            </li>
+          </ul>
         </div>
 
-        {/* ── Form Body ── */}
-        <form onSubmit={handleSubmit} className="px-8 pt-8 pb-4 space-y-5">
-          {/* Error banner */}
-          {error && (
-            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5 shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-                />
-              </svg>
-              {error}
+        <div className="relative text-xs text-white/80">
+          © {new Date().getFullYear()} Restenzo built for modern restaurants.
+        </div>
+      </aside>
+
+      {/* Right — Form */}
+      <section className="relative flex flex-col p-6 sm:p-10">
+        <div className="flex items-center justify-between">
+          <Link href="/" className="lg:hidden">
+            <Logo size="sm" />
+          </Link>
+          <div className="ml-auto flex items-center gap-3">
+            <span className="hidden sm:inline text-sm text-gray-500 dark:text-gray-400">
+              New to Restenzo?
+            </span>
+            <Link
+              href="/signup"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-[#ff5a1f] hover:underline"
+            >
+              Create account
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+            <ThemeToggle />
+          </div>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center py-10">
+          <div className="w-full max-w-md">
+            <div className="animate-[fadeInUp_0.6s_ease-out_both]">
+              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-900 dark:text-white">
+                Sign in to Restenzo
+              </h2>
+              <p className="mt-2 text-gray-600 dark:text-gray-400">
+                Welcome back. Enter your credentials to continue.
+              </p>
             </div>
-          )}
 
-          <Input
-            label="Email"
-            type="email"
-            placeholder="admin@gmail.com"
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              if (error) setError("");
-            }}
-            icon={
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
+            <form
+              onSubmit={handleSubmit}
+              className="mt-8 space-y-5 animate-[fadeInUp_0.7s_ease-out_both]"
+              style={{ animationDelay: "0.1s" }}
+            >
+              {error && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2.5 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-300 text-sm rounded-xl px-4 py-3 animate-[fadeInDown_0.3s_ease-out_both]"
+                >
+                  <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Email or username
+                </label>
+                <div className="relative group">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 group-focus-within:text-[#ff5a1f] transition-colors" />
+                  <input
+                    type="text"
+                    autoComplete="username"
+                    required
+                    placeholder="you@restaurant.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (error) setError("");
+                    }}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/40 focus:border-[#ff5a1f] transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Password
+                  </label>
+                  <Link
+                    href="#"
+                    className="text-xs font-semibold text-[#ff5a1f] hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                <div className="relative group">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 group-focus-within:text-[#ff5a1f] transition-colors" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    required
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError("");
+                    }}
+                    className="w-full pl-10 pr-11 py-3 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/40 focus:border-[#ff5a1f] transition-all"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowPassword((s) => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#ff5a1f] transition-colors"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f]"
                 />
-              </svg>
-            }
-            autoComplete="email"
-            required
-          />
+                Keep me signed in on this device
+              </label>
 
-          <Input
-            label="Password"
-            type="password"
-            placeholder="••••••"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              if (error) setError("");
-            }}
-            icon={
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-brand text-white font-semibold shadow-[0_20px_40px_-15px_rgba(255,90,31,0.65)] hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
-                />
-              </svg>
-            }
-            autoComplete="current-password"
-            required
-          />
+                {isLoading ? (
+                  <svg
+                    className="animate-spin h-5 w-5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                ) : (
+                  <>
+                    Sign in
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            </form>
 
-          <Button type="submit" fullWidth isLoading={isLoading}>
-            Sign In
-          </Button>
-        </form>
-
-        {/* ── Footer ── */}
-        <div className="border-t border-gray-100 py-4 text-center">
-          <p className="text-xs text-gray-400">
-            © 2024 Restaurant Management System
-          </p>
+            <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400 lg:hidden">
+              New to Restenzo?{" "}
+              <Link
+                href="/signup"
+                className="font-semibold text-[#ff5a1f] hover:underline"
+              >
+                Create an account
+              </Link>
+            </p>
+          </div>
         </div>
-      </div>
+      </section>
     </main>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { Suspense, useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   RefreshCw,
@@ -24,7 +24,7 @@ import { apiFetch, getAuthSession, isBranchFilterLocked } from "@/lib/auth-clien
 import { useBranchStatus } from "@/lib/use-branch-status";
 import type { AuthSession } from "@/types/auth";
 
-export default function OrdersPage() {
+function OrdersPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [authorized, setAuthorized] = useState(false);
@@ -381,5 +381,13 @@ export default function OrdersPage() {
         }}
       />
     </DashboardLayout>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrdersPageInner />
+    </Suspense>
   );
 }

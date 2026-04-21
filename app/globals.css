@@ -1,40 +1,85 @@
 @import "tailwindcss";
 
+/* Enable `dark:` variant to follow the project's `html.theme-dark` class */
+@custom-variant dark (&:where(.theme-dark, .theme-dark *));
+
 :root {
-  --background: #f3f4f6;
-  --foreground: #111827;
-  --scrollbar-track: #e5e7eb;
-  --scrollbar-thumb: #94a3b8;
-  --scrollbar-thumb-hover: #64748b;
+  --background: #ffffff;
+  --foreground: #0b0f17;
+  --scrollbar-track: #f1f5f9;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+
+  /* Restenzo brand */
+  --brand: #ff5a1f;
+  --brand-2: #ff8a3d;
+  --brand-3: #ffb07a;
+  --brand-dark: #e04e18;
+
+  /* Surfaces used by the internal POS app (keep existing look) */
+  --app-background: #f3f4f6;
+  --app-foreground: #111827;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand: var(--brand);
+  --color-brand-2: var(--brand-2);
+  --color-brand-3: var(--brand-3);
+  --color-brand-dark: var(--brand-dark);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --animate-fade-in: fadeIn 0.8s ease-out both;
+  --animate-fade-in-up: fadeInUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in-down: fadeInDown 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-scale-in: scaleIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-blob: blob 14s ease-in-out infinite;
+  --animate-shimmer: shimmer 3s linear infinite;
+  --animate-marquee: marquee 40s linear infinite;
+  --animate-pulse-glow: pulseGlow 3s ease-in-out infinite;
+  --animate-gradient: gradient 12s ease infinite;
 }
 
 body {
+  background: var(--app-background);
+  color: var(--app-foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+}
+
+/* Marketing/site pages get the cleaner white surface */
+body.site-body {
   background: var(--background);
   color: var(--foreground);
 }
 
 html.theme-dark {
-  --background: #020617;
-  --foreground: #e5e7eb;
+  --background: #05070d;
+  --foreground: #f1f5f9;
   --scrollbar-track: #0b1220;
   --scrollbar-thumb: #334155;
   --scrollbar-thumb-hover: #475569;
+
+  --app-background: #020617;
+  --app-foreground: #e5e7eb;
 }
 
 html.theme-dark body {
+  background: var(--app-background);
+  color: var(--app-foreground);
+}
+
+html.theme-dark body.site-body {
   background: var(--background);
   color: var(--foreground);
 }
 
-/* Global dark mode overrides for common surfaces/text/borders */
-
+/* ──────────────────────────────────────────────────────────────
+   Internal POS app dark-mode overrides (kept from existing app)
+   ────────────────────────────────────────────────────────────── */
 html.theme-dark .bg-white {
   background-color: #020617 !important;
 }
@@ -111,11 +156,24 @@ html.theme-dark .deal-item-row {
   border-color: #2b3a52 !important;
 }
 
-html.theme-dark .deal-item-name {
-  color: #f8fafc !important;
+/* The marketing site escapes the global overrides. Any element with
+   `.site-scope` below will use its own explicit dark styles. */
+html.theme-dark .site-scope .bg-white,
+html.theme-dark body.site-body .bg-white {
+  background-color: #0b1220 !important;
 }
 
-/* Global themed scrollbars (Chromium + Firefox) */
+html.theme-dark .site-scope input,
+html.theme-dark .site-scope select,
+html.theme-dark .site-scope textarea {
+  background-color: #0b1220;
+  border-color: #1f2937;
+  color: #f1f5f9;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Global themed scrollbars
+   ────────────────────────────────────────────────────────────── */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
@@ -145,7 +203,9 @@ html.theme-dark .deal-item-name {
   background: var(--scrollbar-track);
 }
 
-/* Toast slide-in animation */
+/* ──────────────────────────────────────────────────────────────
+   Keyframes
+   ────────────────────────────────────────────────────────────── */
 @keyframes slideIn {
   from {
     opacity: 0;
@@ -154,5 +214,210 @@ html.theme-dark .deal-item-name {
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-18px) rotate(1.5deg);
+  }
+}
+
+@keyframes blob {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -20px) scale(1.08);
+  }
+  66% {
+    transform: translate(-20px, 30px) scale(0.95);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -800px 0;
+  }
+  100% {
+    background-position: 800px 0;
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 90, 31, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 18px rgba(255, 90, 31, 0);
+  }
+}
+
+@keyframes gradient {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Utility helpers for the marketing site
+   ────────────────────────────────────────────────────────────── */
+.text-gradient-brand {
+  background: linear-gradient(
+    90deg,
+    #ff5a1f 0%,
+    #ff8a3d 45%,
+    #ffb07a 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.bg-gradient-brand {
+  background: linear-gradient(135deg, #ff5a1f 0%, #ff8a3d 100%);
+}
+
+.bg-gradient-brand-soft {
+  background: radial-gradient(
+      1200px 600px at 10% -10%,
+      rgba(255, 138, 61, 0.18),
+      transparent 60%
+    ),
+    radial-gradient(
+      800px 500px at 90% 10%,
+      rgba(255, 90, 31, 0.16),
+      transparent 55%
+    );
+}
+
+html.theme-dark .bg-gradient-brand-soft {
+  background: radial-gradient(
+      1200px 600px at 10% -10%,
+      rgba(255, 138, 61, 0.22),
+      transparent 60%
+    ),
+    radial-gradient(
+      800px 500px at 90% 10%,
+      rgba(255, 90, 31, 0.18),
+      transparent 55%
+    );
+}
+
+.grid-pattern {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(15, 23, 42, 0.08) 1px,
+    transparent 0
+  );
+  background-size: 28px 28px;
+}
+
+html.theme-dark .grid-pattern {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(255, 255, 255, 0.06) 1px,
+    transparent 0
+  );
+}
+
+.glow-brand {
+  box-shadow: 0 30px 80px -20px rgba(255, 90, 31, 0.45),
+    0 10px 30px -10px rgba(255, 90, 31, 0.25);
+}
+
+.card-hover {
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.3s;
+}
+
+.card-hover:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 24px 60px -24px rgba(255, 90, 31, 0.35);
+}
+
+/* Reveal-on-scroll helper (see components/site/Reveal.tsx) */
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 28px, 0);
+  transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 }

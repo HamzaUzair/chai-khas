@@ -14,8 +14,23 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chai Khas - Restaurant POS",
-  description: "Restaurant Management System",
+  title: {
+    default: "Restenzo — Modern Restaurant Management SaaS",
+    template: "%s · Restenzo",
+  },
+  description:
+    "Restenzo is an all-in-one restaurant management platform for single and multi-branch restaurants. Take orders, manage kitchens, run reports and scale your operations with ease.",
+  keywords: [
+    "Restenzo",
+    "restaurant POS",
+    "restaurant management software",
+    "multi-branch restaurant",
+    "kitchen display system",
+    "restaurant analytics",
+  ],
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({
@@ -24,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
