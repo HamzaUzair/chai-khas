@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 const pricingFAQs = [
   {
     q: "Is there a free trial?",
-    a: "Yes every plan includes a 14 day free trial with full access. No credit card required to start.",
+    a: "Yes every plan includes a 14 day free trial with full access. We ask for a card at signup so billing can start automatically after the trial, but you are not charged during the trial and you can cancel any time.",
   },
   {
     q: "Can I switch plans later?",
@@ -56,8 +56,8 @@ export default function PricingPage() {
             </h1>
             <p className="mt-5 text-lg text-gray-600 dark:text-gray-400">
               Choose a plan for a single restaurant or scale to a multi branch
-              chain. Every plan includes a 14 day free trial no credit card
-              required.
+              chain. Every plan includes a 14 day free trial. Add a card at
+              signup so billing starts automatically after the trial.
             </p>
           </Reveal>
         </Container>

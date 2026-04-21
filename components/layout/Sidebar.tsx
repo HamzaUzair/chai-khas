@@ -17,10 +17,13 @@ import {
   Wallet,
   CalendarCheck,
   Grid3X3,
-  UserCog,
   ShieldCheck,
   TrendingUp,
   Store,
+  CreditCard,
+  Package,
+  Activity,
+  LifeBuoy,
   X,
 } from "lucide-react";
 import { getAuthSession } from "@/lib/auth-client";
@@ -31,12 +34,20 @@ interface SidebarItem {
   href?: string;
 }
 
-/* ══════════════ Platform (Super Admin) sidebar ══════════════ */
+/* ══════════════ Platform (Super Admin) sidebar ══════════════
+ * Restenzo Admin is the platform owner control center. The sidebar is
+ * intentionally focused on SaaS concerns (tenants, subscriptions, plans,
+ * billing, setup health, support) and never exposes restaurant-level
+ * operational modules (menu, orders, kitchen, cashier, etc.).
+ */
 const superAdminMenu: SidebarItem[] = [
   { label: "Dashboard", icon: <LayoutDashboard size={20} />, href: "/dashboard" },
   { label: "Restaurants", icon: <Store size={20} />, href: "/restaurants" },
-  { label: "Users", icon: <UserCog size={20} />, href: "/users" },
-  { label: "Advanced Analytics", icon: <TrendingUp size={20} />, href: "/analytics" },
+  { label: "Subscriptions", icon: <CreditCard size={20} />, href: "/subscriptions" },
+  { label: "Plans", icon: <Package size={20} />, href: "/plans" },
+  { label: "Billing", icon: <Wallet size={20} />, href: "/billing" },
+  { label: "Setup Health", icon: <Activity size={20} />, href: "/setup-health" },
+  { label: "Support", icon: <LifeBuoy size={20} />, href: "/support" },
 ];
 
 /* ══════════════ Restaurant Admin operational sidebar ══════════════ */

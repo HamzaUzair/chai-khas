@@ -147,8 +147,9 @@ const PricingSection: React.FC = () => {
         {/* Money-back line */}
         <Reveal className="mt-10 text-center text-sm text-gray-500 dark:text-gray-400">
           <p>
-            All plans include a <strong>14 day free trial</strong>. No credit
-            card required. Cancel anytime.
+            All plans include a <strong>14 day free trial</strong>. Add a card
+            at signup so billing starts automatically after the trial. Cancel
+            anytime.
           </p>
         </Reveal>
       </Container>

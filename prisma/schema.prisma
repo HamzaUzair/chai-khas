@@ -97,15 +97,58 @@ model Restaurant {
   /// hidden in the sidebar, and all operational data flows through a single
   /// default branch created automatically on tenant provisioning.
   has_multiple_branches Boolean  @default(true)
+  /// Marks whether the tenant finished the self-serve onboarding flow
+  /// (account + restaurant + payment method collected). Set to true by
+  /// the signup API once Stripe confirms the trial subscription.
+  onboarding_complete   Boolean  @default(false)
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt
 
-  branches Branch[]
-  users    User[]
-  orders   Order[]
+  branches     Branch[]
+  users        User[]
+  orders       Order[]
+  subscription Subscription?
 
   @@index([status])
   @@map("restaurants")
+}
+
+/// SaaS subscription metadata attached to a Restaurant tenant.
+/// One subscription per restaurant. Created during self-serve signup when
+/// Stripe creates the trialing Subscription and kept in sync through the
+/// webhook (`/api/stripe/webhook`).
+model Subscription {
+  id                      Int       @id @default(autoincrement())
+  restaurant_id           Int       @unique
+  /// Plan id as defined in `lib/pricing.ts` ("single" | "multi" | "enterprise").
+  plan_id                 String
+  /// "monthly" | "yearly" — controls the Stripe price we attach.
+  billing_cycle           String    @default("monthly")
+  /// Restenzo-side status derived from the Stripe subscription:
+  /// trialing | active | past_due | canceled | incomplete | unpaid |
+  /// paused | inactive. Used as the source of truth for UI badges.
+  status                  String    @default("trialing")
+  /// Payment status: unpaid | pending | paid | failed | n_a.
+  payment_status          String    @default("n_a")
+  stripe_customer_id      String?
+  stripe_subscription_id  String?   @unique
+  stripe_price_id         String?
+  /// Last payment method attached to the customer.
+  stripe_payment_method_id String?
+  trial_start             DateTime?
+  trial_end               DateTime?
+  current_period_start    DateTime?
+  current_period_end      DateTime?
+  cancel_at_period_end    Boolean   @default(false)
+  canceled_at             DateTime?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  restaurant Restaurant @relation(fields: [restaurant_id], references: [restaurant_id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([stripe_customer_id])
+  @@map("subscriptions")
 }
 
 model Branch {

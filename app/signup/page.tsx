@@ -79,27 +79,65 @@ function SignUpInner() {
 
     setLoading(true);
 
-    // ──────────────────────────────────────────────────────────────
-    // Future Stripe integration flow
-    // ──────────────────────────────────────────────────────────────
-    // 1. POST { fullName, restaurantName, email, password, restaurantType }
-    //    to /api/auth/signup to create a tenant + admin user
-    // 2. If plan is paid: call /api/billing/checkout with planId + cycle,
-    //    receive Stripe checkout URL and redirect the browser to it.
-    // 3. On successful checkout, Stripe redirects to a webhook+success page
-    //    which finishes tenant activation and signs the user in.
-    // 4. Route user to /dashboard (the role-based portal).
-    //
-    // For now we simulate a short delay and redirect to /login so you can
-    // plug Stripe in behind this single boundary.
-    setTimeout(() => {
-      const params = new URLSearchParams({
-        plan: selectedPlan.id,
-        cycle,
-        email,
+    try {
+      // Step 1: create the tenant + admin user and start a trialing
+      // Stripe subscription. Stripe returns a SetupIntent client_secret
+      // which the onboarding page uses to mount the Payment Element.
+      const res = await fetch("/api/auth/signup-trial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName,
+          email,
+          password,
+          restaurantName,
+          restaurantType,
+          cycle,
+        }),
       });
-      router.push(`/login?${params.toString()}`);
-    }, 900);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Signup failed. Please try again.");
+      }
+
+      const stripeCtx = data.stripe ?? {};
+
+      if (stripeCtx.enabled && stripeCtx.clientSecret && stripeCtx.publishableKey) {
+        // Persist the onboarding context for the /onboarding step.
+        const ctx = {
+          restaurantId: data.restaurantId,
+          userId: data.userId,
+          email: data.email,
+          planId: data.planId,
+          cycle: data.cycle,
+          trialEnd: data.trialEnd,
+          clientSecret: stripeCtx.clientSecret,
+          publishableKey: stripeCtx.publishableKey,
+        };
+        try {
+          window.sessionStorage.setItem(
+            "restenzo_onboarding_ctx",
+            JSON.stringify(ctx)
+          );
+        } catch {
+          // sessionStorage can fail on private-mode browsers; the
+          // onboarding page will surface a friendly retry in that case.
+        }
+        router.push("/onboarding");
+      } else {
+        // Stripe is not configured yet — still let the user sign in.
+        const params = new URLSearchParams({
+          plan: selectedPlan.id,
+          cycle,
+          email,
+          newAccount: "1",
+        });
+        router.push(`/login?${params.toString()}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Signup failed.");
+      setLoading(false);
+    }
   };
 
   return (
@@ -130,7 +168,7 @@ function SignUpInner() {
             <div className="animate-[fadeInUp_0.6s_ease-out_both]">
               <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[#ff5a1f]/25 bg-[#ff5a1f]/10 text-[#ff5a1f] text-xs font-semibold tracking-wide">
                 <Sparkles className="h-3 w-3" />
-                14 day free trial · No credit card required
+                14 day free trial · Billing starts after trial
               </span>
               <h1 className="mt-5 text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white">
                 Create your Restenzo account
@@ -433,15 +471,15 @@ function SignUpInner() {
                   </svg>
                 ) : (
                   <>
-                    Create account & continue
+                    Continue to add payment method
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
               </button>
 
               <p className="text-center text-xs text-gray-500 dark:text-gray-400">
-                After creating your account, you’ll continue to checkout to
-                activate your plan.
+                No charge today. You&apos;ll add a card next so billing can start
+                automatically after your 14 day free trial.
               </p>
             </form>
           </div>

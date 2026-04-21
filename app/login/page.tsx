@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import React, { Suspense, useState, useEffect, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -31,9 +31,12 @@ function getDefaultRouteByRole(role: AuthSession["role"]) {
   return "/dashboard";
 }
 
-export default function LoginPage() {
+function LoginInner() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const searchParams = useSearchParams();
+  const prefillEmail = searchParams.get("email") ?? "";
+  const isNewAccount = searchParams.get("newAccount") === "1";
+  const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -161,6 +164,13 @@ export default function LoginPage() {
                 Welcome back. Enter your credentials to continue.
               </p>
             </div>
+
+            {isNewAccount && (
+              <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                <CheckCircle2 className="inline h-4 w-4 mr-1" />
+                Your account is ready. Sign in to access your portal.
+              </div>
+            )}
 
             <form
               onSubmit={handleSubmit}
@@ -296,5 +306,19 @@ export default function LoginPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-gray-500">
+          Loading…
+        </div>
+      }
+    >
+      <LoginInner />
+    </Suspense>
   );
 }

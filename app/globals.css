@@ -56,6 +56,48 @@ body.site-body {
   color: var(--foreground);
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Hide floating Stripe.js artefacts outside payment pages.
+
+   When `@stripe/stripe-js` is loaded (only on /onboarding), Stripe
+   injects controller/metrics iframes and a Link autofill launcher
+   directly into <body>. In a Next.js SPA these nodes persist after
+   the user navigates back to marketing pages (no full page reload),
+   which makes a floating Stripe badge appear across the whole site.
+
+   The `body.stripe-active` class is only added on pages that actually
+   need Stripe UI (see `StripeBodyClass`). Everywhere else we keep the
+   iframes functional for Stripe's fraud signals (display:none would
+   break them) but move them off-screen and make them non-interactive.
+   ────────────────────────────────────────────────────────────── */
+body > iframe[name^="__privateStripe"],
+body > iframe[src*="js.stripe.com"],
+body > iframe[src*="m.stripe.network"],
+body > iframe[src*="link.stripe.com"] {
+  position: fixed !important;
+  top: -10000px !important;
+  left: -10000px !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+  z-index: -1 !important;
+}
+
+body.stripe-active > iframe[name^="__privateStripe"],
+body.stripe-active > iframe[src*="js.stripe.com"],
+body.stripe-active > iframe[src*="m.stripe.network"],
+body.stripe-active > iframe[src*="link.stripe.com"] {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+  z-index: auto !important;
+}
+
 html.theme-dark {
   --background: #05070d;
   --foreground: #f1f5f9;

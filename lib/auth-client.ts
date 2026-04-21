@@ -4,12 +4,20 @@ import type { AuthSession } from "@/types/auth";
 
 const AUTH_STORAGE_KEY = "auth_session";
 
-/** Routes visible in the Super Admin platform panel. */
+/** Routes visible in the Super Admin platform panel.
+ *
+ * The Restenzo Admin panel is a SaaS platform owner control center, so the
+ * allowed routes are scoped to tenant management, billing, subscriptions,
+ * plans, setup health and support — never to restaurant operational data.
+ */
 export const SUPER_ADMIN_ALLOWED_PATHS = new Set([
   "/dashboard",
   "/restaurants",
-  "/users",
-  "/analytics",
+  "/subscriptions",
+  "/plans",
+  "/billing",
+  "/setup-health",
+  "/support",
 ]);
 
 /** Routes visible in the Restaurant Admin operational panel. */
